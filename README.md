@@ -10,3 +10,4 @@ radio channel hardware and software for vanet
     * into
       * SRC_URI = "${BASE_SRC_URI} \ git://github.com/wujingbang/wpa_supplicant_8.git;protocol=https;tag=android-4.4.4_r2.0.1"
 3. Continue the instruction.
+try
