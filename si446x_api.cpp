@@ -95,8 +95,9 @@ const unsigned char RF_MODEM_CHFLT_RX2_CHFLT_COE7_7_0_12_data[]=	{RF_MODEM_CHFLT
 const unsigned char RF_SYNTH_PFDCP_CPFF_7_data[]=					{RF_SYNTH_PFDCP_CPFF_7};
 
 const unsigned char tx_test_aa_data[14] = {0xaa,0xaa,0xaa,0xaa,0xaa,0xaa,0xaa,0xaa,0xaa,0xaa,0xaa,0xaa,0xaa,0xaa};  
-const unsigned char tx_ph_data[14] = {'s','w','w','x',0x41,0x42,0x43,0x44,0x45,0x46,0x47,0x48,0x49,0x6d};  // 每秒发射的固定内容的测试信号，第10个数据是前9个数据的校验和
-
+//const unsigned char tx_ph_data[14] = {'s','w','w','x',0x41,0x42,0x43,0x44,0x45,0x46,0x47,0x48,0x49,0x6d};  // 每秒发射的固定内容的测试信号，第10个数据是前9个数据的校验和
+const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
+//const unsigned char tx_ph_data[14] = {0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11};
 
 unsigned int si446x_powerlevel = 0;
 unsigned long active_freq = RADIO_FREQUENCY;
@@ -128,8 +129,8 @@ void RadioSi446x::SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, const u
     
     /* There was a bug in A1 hardware that will not handle 1 byte commands. 
        It was supposedly fixed in B0 but the fix didn't make it at the last minute, so here we go again */
-    if (byteCountTx == 1)
-        byteCountTx++;
+ //   if (byteCountTx == 1)
+  //      byteCountTx++;
     
     digitalWrite(ss_pin,LOW);
     char answer;   
@@ -185,7 +186,7 @@ void RadioSi446x::SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, const u
        
     digitalWrite(ss_pin,HIGH);
     Serial.println();
-    delay(500); // Wait half a second to prevent Serial buffer overflow
+    delay(100); // Wait half a second to prevent Serial buffer overflow
 }
 
 
@@ -429,8 +430,8 @@ void RadioSi446x::clr_interrupt(void)		// 清中断标志
 	p[1] = 0;   
 	p[2] = 0;   
 	p[3] = 0; 
-  //SendCmdReceiveAnswer(4,9,p);
-	spi_write(4,p);
+  SendCmdReceiveAnswer(4,9,p);
+//	spi_write(4,p);
 	//spi_read(9,GET_INT_STATUS); 
 }
 
@@ -482,7 +483,7 @@ void RadioSi446x::rx_start(void)					// 开始接收
 	p[2] = 0x00; 
 	p[3] = 0;
 	p[4] = 0;
-	p[5] = 0; 
+	p[5] = 0x08; 
 	p[6] = 0x08;  
 	p[7] = 0x08;   	
 	spi_write(8, p);  
@@ -498,8 +499,36 @@ void RadioSi446x::spi_write_fifo(void) {
 }
 
 void RadioSi446x::spi_read_fifo(void) {
-  unsigned char p[] = {READ_RX_FIFO};
-  SendCmdReceiveAnswer(1,payload_length,p);
+ /*     int reply = 0x00;
+
+  digitalWrite(ss_pin, HIGH);
+  delayMicroseconds(20);
+  digitalWrite(ss_pin, LOW);
+  
+      while (reply != 0xFF)
+    {       
+       reply = SPI.transfer(0x44);
+//       Serial.print(reply,HEX);
+//       Serial.print(" ");
+       if (reply != 0xFF)
+       {
+         digitalWrite(ss_pin,HIGH);
+         delayMicroseconds(20);
+         digitalWrite(ss_pin,LOW);   
+       }
+    }
+
+        */ 
+  digitalWrite(ss_pin, LOW);
+  SPI.transfer(READ_RX_FIFO);
+  for (int j=0; j<payload_length; j++){
+    Serial.print(SPI.transfer(0x00), HEX);
+    Serial.print(" ");
+  }
+  digitalWrite(ss_pin,HIGH);
+  Serial.println();  
+//  unsigned char p[] = {READ_RX_FIFO};
+//  SendCmdReceiveAnswer(1,payload_length,p);
 }
 
 void RadioSi446x::si4463_init(void)
@@ -518,11 +547,12 @@ void RadioSi446x::si4463_init(void)
 		
 	// spi_write(0x05, RF_GLOBAL_XO_TUNE_1_data); 
   //调整晶振,应该可以使用默认值
+  
         app_command_buf[0] = 0x11;  
 	app_command_buf[1]  = 0x00;    
 	app_command_buf[2]  = 0x01;    
 	app_command_buf[3]  = 0x00;  
-	app_command_buf[4]  = 98;  			// 频率调整
+	app_command_buf[4]  = 127;  			// 频率调整
 	spi_write(5, app_command_buf);
 
 	// spi_write(0x05, RF_GLOBAL_CONFIG_1_data);
@@ -562,7 +592,7 @@ void RadioSi446x::si4463_init(void)
 	app_command_buf[7]  = 0x00;							// 字节 1
 	app_command_buf[8]  = 0x00;							// 字节 0
     spi_write(9, app_command_buf);
-        
+       
 	//  packet crc         
     app_command_buf[0] = 0x11;  
 	app_command_buf[1]  = 0x12; 
@@ -588,7 +618,7 @@ void RadioSi446x::si4463_init(void)
 	app_command_buf[5]  = 0x00;
 	app_command_buf[6]  = 0x00;						 
     spi_write(7, app_command_buf);         
-	
+ 	
 	app_command_buf[0] = 0x11;  
 	app_command_buf[1]  = 0x12;
 	app_command_buf[2]  = 0x0c;
@@ -597,9 +627,9 @@ void RadioSi446x::si4463_init(void)
 	app_command_buf[5]  = payload_length;
 	app_command_buf[6]  = 0x04;
 	app_command_buf[7]  = 0xaa;
-	app_command_buf[8]  = 0x00;
-	app_command_buf[9]  = 0x00;
-	app_command_buf[10]  = 0x00;
+	app_command_buf[8]  = 0x00;//0x05;    //field 2 length
+	app_command_buf[9]  = 0x00;//0x04;
+	app_command_buf[10]  = 0x00;//0xaa;
 	app_command_buf[11]  = 0x00;
 	app_command_buf[12]  = 0x00; 
 	app_command_buf[13]  = 0x00;
@@ -621,7 +651,7 @@ void RadioSi446x::si4463_init(void)
 	app_command_buf[10]  = 0x00;
 	app_command_buf[11]  = 0x00;
     spi_write(12, app_command_buf);
-    
+   
     spi_write(0x10, RF_MODEM_MOD_TYPE_12_data);        
 	spi_write(0x05, RF_MODEM_FREQ_DEV_0_1_data);		 // 以上参数根据WDS配置得出	
 	
@@ -650,7 +680,7 @@ void RadioSi446x::si4463_init(void)
 	app_command_buf[2]  = 0x04;                                               
 	app_command_buf[3]  = 0x00;                                                     
 	app_command_buf[4]  = 0x08;
-	app_command_buf[5]  = 127;							// 设置最大功率
+	app_command_buf[5]  = 0x7f;							// 设置最大功率
 	app_command_buf[6]  =0x00;
 	app_command_buf[7]  = 0x3d;
     spi_write(8, app_command_buf);        
@@ -662,16 +692,19 @@ void RadioSi446x::si4463_init(void)
 	app_command_buf[1]  = 0x30;                                                     
 	app_command_buf[2]  = 0x0c;                                                   
 	app_command_buf[3]  = 0x00;                                                       
-	app_command_buf[4]  = 's';
+	app_command_buf[4]  = 'a';
 	app_command_buf[5]  = 0xff;
-	app_command_buf[6]  = 0x40;
-	app_command_buf[7]  = 'w';                                      
+      if(ss_pin == 1)
+        app_command_buf[6]  = 0x40;
+      else
+        app_command_buf[6]  = 0x40;
+	app_command_buf[7]  = 'b';                                      
 	app_command_buf[8]  = 0xff;                                       
 	app_command_buf[9]  = 0x01; 
-	app_command_buf[10] = 'w';                                   
+	app_command_buf[10] = 'c';                                   
 	app_command_buf[11]  =0xff;                                       
 	app_command_buf[12]  =0x02;
-	app_command_buf[13]  = 'x';                                  
+	app_command_buf[13]  = 'd';                                  
 	app_command_buf[14]  = 0xff;
 	app_command_buf[15]  =0x03;
     spi_write(16, app_command_buf); 					// 配置头码
@@ -685,4 +718,28 @@ void RadioSi446x::si4463_init(void)
 void RadioSi446x::request_device_state(void){
   unsigned char p[] = {REQUEST_DEVICE_STATE};
   SendCmdReceiveAnswer(1,3,p);
+}
+
+void RadioSi446x::get_pakcet_info(void){
+	unsigned char p[6];
+	
+	p[0] = PACKET_INFO ;
+	p[1] = 0x00 ; 			// 通道0
+	p[2] = 0x00; 
+	p[3] = 0x00;
+	p[4] = 0x00;
+	p[5] = 0x00; 
+   	
+	SendCmdReceiveAnswer(6,3,p);    
+}
+
+
+void RadioSi446x::get_fifo_info(void)			// 复位发射和接收 FIFO
+{
+	unsigned char p[2];
+	
+	p[0] = FIFO_INFO;
+	p[1] = 0x00;   
+  SendCmdReceiveAnswer(2, 3, p);
+//	spi_write(2,p);
 }

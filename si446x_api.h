@@ -24,6 +24,9 @@ class RadioSi446x : public Radio {
   private:
     int ss_pin;
     int nirq_pin;
+    
+    
+    //void out2mem
   
   public:
     virtual void setup();
@@ -57,6 +60,8 @@ class RadioSi446x : public Radio {
 //Status Getting Method
   void request_device_state(void);
   void spi_read_fifo(void);
+  void get_pakcet_info(void);
+  void get_fifo_info(void);
 
  
 // PIN Definitions:

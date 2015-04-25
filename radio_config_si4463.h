@@ -371,7 +371,7 @@
 //   MODEM_CLKGEN_BAND - Selects the divide ratio of the configurable divider at the output of the PLL Synthesizer as a function of the desired operating frequency band. Configures the PLL Synthesizer for High Performance or Low Power operating mode, allowing a tradeoff between tuning resolution and current consumption.
 */
 #define RF_MODEM_CLKGEN_BAND_1 0x11, 0x20, 0x01, 0x51, 0x0A
-
+//#define RF_MODEM_CLKGEN_BAND_1 0x11, 0x20, 0x01, 0x51, 0x08
 /*
 // Set properties:           RF_MODEM_CHFLT_RX1_CHFLT_COE13_7_0_12
 // Number of properties:     12
@@ -508,7 +508,8 @@
 //   FREQ_CONTROL_VCOCNT_RX_ADJ - The chip performs a calibration of the VCO at each new commanded frequency. This is accomplished by counting cycles of the VCO frequency and comparing to an expected target count value. As the chip's default mode of operation uses a low-IF architecture with low-side Mixer injection, the RX LO must shift downwards in frequency during RX mode. The expected target count value changes as a result of this shift in frequency. This field is a signed value that represents the amount by which the target count value must be adjusted in RX mode.
 */
 #define RF_FREQ_CONTROL_INTE_8 0x11, 0x40, 0x08, 0x00, 0x37, 0x0D, 0x55, 0x55, 0x88, 0x89, 0x20, 0xFE //425MHZ
-
+//#define RF_FREQ_CONTROL_INTE_8 0x11, 0x40, 0x08, 0x00, 0x3C, 0x08, 0x00, 0x00, 0x88, 0x89, 0x20, 0xFE
+//#define RF_FREQ_CONTROL_INTE_8 0x11, 0x40, 0x08, 0x00, 0x3C, 0x08, 0x00, 0x00, 0x00, 0x00, 0x20, 0xFE
 
 // AUTOMATICALLY GENERATED CODE! 
 // DO NOT EDIT/MODIFY BELOW THIS LINE!
