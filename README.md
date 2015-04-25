@@ -21,7 +21,8 @@ radio channel hardware and software for vanet
     * #define SCKpin          13 // SCK
 2. Power output from Arduino kit.
     * 3.3v or 5v (RF4463F30 needs 5V)
-# Notices for the driving of the si4463
+    
+# Notices for driving the si4463
 1. Cmd id MUST be sent after pulling down the slave select pin. In other words:
 	 * Before sending every cmd (including the READ_CMD_BUFF), slave select pin must be pulled low from the High state.
 	 * In the READ_CMD_BUFF, if the CTS response byte is not 0xFF, the host MCU should pull NSEL high and repeat the polling procedure.
