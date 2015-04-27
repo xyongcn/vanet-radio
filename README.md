@@ -12,6 +12,9 @@ radio channel hardware and software for vanet
 3. Continue the instruction.
 
 # Connect si4463 to Arduino kit 
+1. Set the jumper in the Arduino: 
+    * Set J9 to 3.3V
+    * Reference: https://communities.intel.com/docs/DOC-23455
 1. Pin definition in the Arduino kit:
     * #define NIRQ            6  //interrpt
     * #define RADIO_SDN_PIN   7  //SDN
