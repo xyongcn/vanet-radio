@@ -479,4 +479,5 @@ update-rc.d -f bootup_edison.sh remove
 systemctl disable systemd-timesyncd
 
 （2）修改时间
+
 timedatectl set-time "2015-06-06 12:00:00"
