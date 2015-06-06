@@ -472,3 +472,11 @@ update-rc.d -f bootup_edison.sh remove
 （5）Bytewalla发送完成bundle后会有BundleTrasmitted的通知栏提示，如果bytewalla收到的一个bundle会有BundlRecived通知栏提醒。
 
 **Bytewalla代码: https://github.com/thedevilking/bytewalla-epidemic**
+
+### 十六、Edison修改时间 ###
+（1）停止自动对时服务
+
+systemctl disable systemd-timesyncd
+
+（2）修改时间
+timedatectl set-time "2015-06-06 12:00:00"
