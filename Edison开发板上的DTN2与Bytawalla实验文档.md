@@ -481,3 +481,31 @@ systemctl disable systemd-timesyncd
 （2）修改时间
 
 timedatectl set-time "2015-06-06 12:00:00"
+
+### 十七、Edison上蓝牙的使用 ###
+（1）程序地址
+
+https://github.com/xyongcn/bt-adb-shell/tree/master/edison
+
+（2）蓝牙模块开机默认可发现和可配对
+
+修改/etc/bluetooth/main.conf中的
+
+DiscoverableTimeout = 0
+
+PairableTimeout = 0
+
+（3）在脚本中添加启动程序
+
+rfkill unblock bluetooth
+
+/home/bt-shell-edison &
+
+（4）控制端确认蓝牙连接
+
+l2ping 蓝牙地址
+
+（5）在出现“input：”提示后，输入
+
+bleconnect 蓝牙地址
+
