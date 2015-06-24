@@ -753,11 +753,11 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 }
 
 inline ssize_t
-spidev_sync_transfer(struct spidev_data *spidev, u8 *in_buf, u8 *out_buf, size_t len)
+spidev_sync_transfer(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t len)
 {
 	struct spi_transfer	t = {
-			.tx_buf		= in_buf,
-			.rx_buf		= out_buf,
+			.tx_buf		= tx_buf,
+			.rx_buf		= rx_buf,
 			.len		= len,
 			.cs_change	= 0,
 		};
@@ -774,7 +774,7 @@ spidev_sync_write(struct spidev_data *spidev,  size_t len)
 	struct spi_transfer	t = {
 			.tx_buf		= spidev->buffer,
 			.len		= len,
-			.cs_change	= 0,
+			.cs_change	= 1,
 		};
 	struct spi_message	m;
 
@@ -789,7 +789,7 @@ spidev_sync_read(struct spidev_data *spidev, size_t len)
 	struct spi_transfer	t = {
 			.rx_buf		= spidev->buffer,
 			.len		= len,
-			.cs_change	= 0,
+			.cs_change	= 1,
 		};
 	struct spi_message	m;
 
@@ -797,6 +797,7 @@ spidev_sync_read(struct spidev_data *spidev, size_t len)
 	spi_message_add_tail(&t, &m);
 	return spidev_sync(spidev, &m);
 }
+
 
 /*-------------------------------------------------------------------------*/
 
@@ -854,6 +855,8 @@ spidev_write(struct file *filp, const char __user *buf,
 
 	return status;
 }
+
+
 
 static int spidev_message(struct spidev_data *spidev,
 		struct spi_ioc_transfer *u_xfers, unsigned n_xfers)
@@ -1309,6 +1312,7 @@ static int spidev_probe(struct spi_device *spi)
 
 	printk(KERN_ALERT "init: tmp= %x\n", tmp);
 	tmp |= SPI_MODE_0;
+	//tmp |= SPI_NO_CS;
 	//tmp |= SPI_CS_HIGH;
 	//tmp |= SPI_READY;
 	printk(KERN_ALERT "midd: tmp= %x\n", tmp);
@@ -1348,16 +1352,13 @@ static int spidev_probe(struct spi_device *spi)
 	}
 
 	/* Request Chip Select gpios */
+
 	if (gpio_is_valid(CS_SELF)) {
 		saved_muxing = gpio_get_alt(CS_SELF);
 		lnw_gpio_set_alt(CS_SELF, LNW_GPIO);
 		err = gpio_request_one(CS_SELF,
 				GPIOF_DIR_OUT | GPIOF_INIT_HIGH, "Radio CS pin");
 		if (err) {
-			/*pr_err(
-					"%s: unable to get Chip Select GPIO,\
-						fallback to legacy CS mode \n",
-					__func__);*/
 			printk(KERN_ALERT "ERROR! CS_SELF request error: %d\n", err);
 			lnw_gpio_set_alt(CS_SELF, saved_muxing);
 		}
@@ -1424,7 +1425,7 @@ static struct spi_driver spidev_spi_driver = {
 
 void si4463_rx(struct net_device *dev, int len, unsigned char *buf)
 {
-	printk("si4463_rx\n");
+	//printk("si4463_rx\n");
 
     struct sk_buff *skb;
     struct si4463_priv *priv = netdev_priv(dev);//(struct si4463_priv *) dev->priv;
@@ -1482,6 +1483,27 @@ int si4463_open(struct net_device *dev)
 	mdelay(10);
 	//getCTS();
 	reset();
+	si4463_init();
+	fifo_reset();
+	enable_tx_interrupt();
+
+	int tmp = 5;
+//	u8 str[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+	const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
+	printk(KERN_ALERT "Before: \n");
+	get_fifo_info();
+	mdelay(1000);
+	for(;tmp>0; tmp--){
+		mdelay(1000);
+
+		spi_write_fifo(tx_ph_data, 19);
+		printk(KERN_ALERT "Writing: \n");
+		get_fifo_info();
+		tx_start();
+		printk(KERN_ALERT "Sending: \n");
+		get_fifo_info();
+	}
+
 
     return 0;
 }
@@ -1526,7 +1548,7 @@ void si4463_hw_tx(char *buf, int len, struct net_device *dev)
 
 int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 {
-	printk("si4463_tx\n");
+	//printk("si4463_tx\n");
     int len;
     char *data;
     struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
@@ -1608,7 +1630,7 @@ static const struct net_device_ops my_netdev_ops = {
 	.ndo_tx_timeout      = si4463_tx_timeout,
 };
 
-void si4463_init(struct net_device *dev)
+void si4463_net_init(struct net_device *dev)
 {
 
 	struct si4463_priv *priv;
@@ -1663,7 +1685,7 @@ static int __init spidev_init(void)
 	}
 
 	/* Allocate the NET devices */
-	si4463_devs = alloc_netdev(sizeof(struct si4463_priv), "rf%d", si4463_init);
+	si4463_devs = alloc_netdev(sizeof(struct si4463_priv), "rf%d", si4463_net_init);
 	if (si4463_devs == NULL)
 		goto out;
 
