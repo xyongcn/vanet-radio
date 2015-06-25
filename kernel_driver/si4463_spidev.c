@@ -39,6 +39,7 @@
 
 #include <linux/gpio.h>
 #include <linux/lnw_gpio.h>
+#include <linux/irq.h>
 
 #include <asm/uaccess.h>
 
@@ -101,8 +102,7 @@ module_param(bufsiz, uint, S_IRUGO);
 MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 
 /*-------------------------------------------------------------------------*/
-struct spi_device *spi_save;
-struct spidev_data spidev_global;
+
 
 #include "si4463.h"
 #include "si4463_api.h"
@@ -122,6 +122,8 @@ struct spidev_data spidev_global;
 #include <linux/in6.h>
 #include <asm/checksum.h>
 
+#include <linux/wait.h>
+#include <linux/kthread.h>
 
 
 #define IRQ_NET_CHIP  20//需要根据硬件确定
@@ -130,6 +132,14 @@ struct spidev_data spidev_global;
 /* GLOBAL */
 static char  netbuffer[100];
 struct net_device *si4463_devs;
+
+struct spi_device *spi_save;
+struct spidev_data spidev_global;
+
+wait_queue_head_t spi_wait_queue;
+struct cmd_queue *cmd_q_;
+struct task_struct *cmd_handler_tsk;
+
 
 #ifdef SI4463
 
@@ -752,6 +762,7 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 	return status;
 }
 
+
 inline ssize_t
 spidev_sync_transfer(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t len)
 {
@@ -781,6 +792,21 @@ spidev_sync_write(struct spidev_data *spidev,  size_t len)
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
 	return spidev_sync(spidev, &m);
+}
+
+inline ssize_t
+spidev_async_write(struct spidev_data *spidev,  size_t len)
+{
+	struct spi_transfer	t = {
+			.tx_buf		= spidev->buffer,
+			.len		= len,
+			.cs_change	= 1,
+		};
+	struct spi_message	m;
+
+	spi_message_init(&m);
+	spi_message_add_tail(&t, &m);
+	return spi_async(spidev->spi, &m);
 }
 
 inline ssize_t
@@ -1367,6 +1393,11 @@ static int spidev_probe(struct spi_device *spi)
 		printk(KERN_ALERT "ERROR! invalid pin CS_SELF\n");
 	}
 
+	/* Waiting Queue */
+	init_waitqueue_head(&spi_wait_queue);
+	cmd_q_ = kmalloc(sizeof(struct cmd_queue), GFP_ATOMIC);
+	cmd_q_->count = 0;
+
 	return status;
 }
 
@@ -1425,7 +1456,7 @@ static struct spi_driver spidev_spi_driver = {
 
 void si4463_rx(struct net_device *dev, int len, unsigned char *buf)
 {
-	//printk("si4463_rx\n");
+	printk(KERN_ALERT "si4463_rx\n");
 
     struct sk_buff *skb;
     struct si4463_priv *priv = netdev_priv(dev);//(struct si4463_priv *) dev->priv;
@@ -1449,7 +1480,7 @@ void si4463_rx(struct net_device *dev, int len, unsigned char *buf)
     return;
 }
 
-static irqreturn_t si4463__interrupt (int irq, void *dev_id)
+static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 {
 	struct net_device *dev;
 	dev = (struct net_device *) dev_id;
@@ -1457,11 +1488,25 @@ static irqreturn_t si4463__interrupt (int irq, void *dev_id)
     //get data from hardware register
 
 	si4463_rx(dev,100,netbuffer);
+	//clr_interrupt_nosleep();
+	cmd_q_->count++;
+	wake_up_interruptible(&spi_wait_queue);
 
 	return IRQ_HANDLED;
 }
 
+static int cmd_queue_handler(void *data){
+	while(1){
+		printk(KERN_ALERT "cmd_queue_handler:1\n");
+		if (wait_event_interruptible(spi_wait_queue, cmd_q_->count != 0)) {
+			return -ERESTARTSYS;
+		}
+		printk(KERN_ALERT "cmd_queue_handler:2, count: %d\n", cmd_q_->count);
+		cmd_q_->count--;
+		clr_interrupt();
+	}
 
+}
 
 int si4463_open(struct net_device *dev)
 {
@@ -1469,11 +1514,6 @@ int si4463_open(struct net_device *dev)
 	printk(KERN_ALERT "si4463_o2pen\n");
 
 
-    ret = request_irq(IRQ_NET_CHIP, si4463__interrupt, IRQF_SHARED,
-			  dev->name, dev);
-	if (ret)
-		return ret;
-    printk("request_irq ok\n");
 
     //getCTS();
 
@@ -1485,27 +1525,36 @@ int si4463_open(struct net_device *dev)
 	reset();
 	si4463_init();
 	fifo_reset();
-	enable_tx_interrupt();
 
-	int tmp = 5;
-//	u8 str[4] = {0xaa, 0xbb, 0xcc, 0xdd};
-	const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
-	printk(KERN_ALERT "Before: \n");
-	get_fifo_info();
-	mdelay(1000);
-	for(;tmp>0; tmp--){
-		mdelay(1000);
+	/*RX*/
+	printk(KERN_ALERT "RXXXXXXXXXXX\n");
+	enable_rx_interrupt();
+	printk(KERN_ALERT "enable_rx_interrupt\n");
+	clr_interrupt();
+	printk(KERN_ALERT "clr_interrupt\n");
+	rx_start();
+	printk(KERN_ALERT "rx_start\n");
 
-		spi_write_fifo(tx_ph_data, 19);
-		printk(KERN_ALERT "Writing: \n");
-		get_fifo_info();
-		tx_start();
-		printk(KERN_ALERT "Sending: \n");
-		get_fifo_info();
+	mdelay(2000);
+
+	int irq = gpio_to_irq(NIRQ);
+	irq_set_irq_type(irq, IRQ_TYPE_EDGE_FALLING);
+
+    ret = request_irq(irq, si4463_interrupt, IRQF_NO_SUSPEND,
+			  dev->name, dev);
+	if (ret){
+		printk(KERN_ALERT "request_irq failed!\n");
+		return ret;
 	}
 
+	cmd_handler_tsk = kthread_run(cmd_queue_handler, NULL, "cmd_queue_handler");
+	if (IS_ERR(cmd_handler_tsk)) {
+		printk(KERN_ALERT "create kthread failed!\n");
+	} else {
+		printk("create ktrhead ok!\n");
+	}
 
-    return 0;
+    return ret;
 }
 
 int si4463_release(struct net_device *dev)
@@ -1523,7 +1572,7 @@ int si4463_release(struct net_device *dev)
 
 void si4463_hw_tx(char *buf, int len, struct net_device *dev)
 {
-	printk("si4463_hw_rx\n");
+	//printk("si4463_hw_tx\n");
     struct si4463_priv *priv;
 
     /* check the ip packet length,it must more then 34 octets */
@@ -1539,6 +1588,21 @@ void si4463_hw_tx(char *buf, int len, struct net_device *dev)
 
     /* remember to free the sk_buffer allocated in upper layer. */
     dev_kfree_skb(priv->skb);
+
+/*
+	enable_tx_interrupt();
+	int tmp = 5;
+//	u8 str[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+	const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
+
+	mdelay(1000);
+	for(;tmp>0; tmp--){
+		mdelay(1000);
+
+		spi_write_fifo(tx_ph_data, 19);
+		tx_start();
+	}
+	*/
 }
 
 /*
@@ -1548,7 +1612,7 @@ void si4463_hw_tx(char *buf, int len, struct net_device *dev)
 
 int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 {
-	//printk("si4463_tx\n");
+	printk("si4463_tx\n");
     int len;
     char *data;
     struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
@@ -1623,7 +1687,7 @@ static const struct net_device_ops my_netdev_ops = {
 
 	.ndo_open            = si4463_open,
 	.ndo_stop            = si4463_release,
-	.ndo_start_xmit = si4463_tx,
+	.ndo_start_xmit		 = si4463_tx,
 	.ndo_do_ioctl        = si4463_ioctl,
 	.ndo_get_stats       = si4463_stats,
 	.ndo_change_mtu      = si4463_change_mtu,
@@ -1692,9 +1756,11 @@ static int __init spidev_init(void)
 
 	ret = -ENODEV;
 	if ((result = register_netdev(si4463_devs)))
-		printk("demo: error %i registering device \"%s\"\n",result, si4463_devs->name);
+		printk(KERN_ALERT "demo: error %i registering device \"%s\"\n",result, si4463_devs->name);
 	else
 		ret = 0;
+
+
 out:
 	return status;
 }

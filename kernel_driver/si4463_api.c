@@ -7,11 +7,13 @@
 #include <linux/gpio.h>
 #include <linux/delay.h>
 #include <linux/spi/spi.h>
-
+#include <linux/wait.h>
 
 
 extern struct spi_device *spi_save;
 extern struct spidev_data spidev_global;
+extern wait_queue_head_t spi_wait_queue;
+//extern struct task_struct *cmd_handler_tsk;
 
 const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
 //const unsigned char tx_ph_data[14] = {0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11};
@@ -86,11 +88,11 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 
 	char answer, i, j, k;
 //发送命令
-	printk(KERN_ALERT "Send CMD! \n");
+	//printk(KERN_ALERT "Send CMD! \n");
 	gpio_set_value(CS_SELF, 0);
 	for (i=0; i<byteCountTx; i++){
 		spidev_global.buffer = &(in_buff[i]);
-		printk(KERN_ALERT "%x ", *(spidev_global.buffer));
+		//printk(KERN_ALERT "%x ", *(spidev_global.buffer));
 		spidev_sync_write(&spidev_global, 1);
 	}
 	gpio_set_value(CS_SELF, 1);
@@ -115,21 +117,39 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 		if (j-- < 0)
 			break;
 	}
-	printk(KERN_ALERT "RECV CMD! \n");
+	//printk(KERN_ALERT "RECV CMD! \n");
 	for (k=0; k<byteCountRx; k++){
 		spidev_global.buffer = &(out_buff[k]);
 		spidev_sync_read(&spidev_global, 1);
 
-		printk(KERN_ALERT "%x ", *(spidev_global.buffer));
+		//printk(KERN_ALERT "%x ", *(spidev_global.buffer));
 	}
 	gpio_set_value(CS_SELF, 1);
 	return out_buff;
 }
+/*
+int spi_write_cmd_async(int byteCountTx, u8 * tx_buff) {
 
+	char answer, i, j, k;
+	int status;
+//发送命令
+	//printk(KERN_ALERT "Send CMD! \n");
+	gpio_set_value(CS_SELF, 0);
+	for (i=0; i<byteCountTx; i++){
+		spidev_global.buffer = &(tx_buff[i]);
+		//printk(KERN_ALERT "%x ", *(spidev_global.buffer));
+		status = spidev_sync_write_nosleep(&spidev_global, 1);
+	}
+	gpio_set_value(CS_SELF, 1);
+	return status;
+}
+*/
 
 u8 * spi_write_cmd(int byteCountTx, u8 * in_buff) {
 	SendCmdReceiveAnswer(byteCountTx, 0, in_buff, NULL);
 }
+
+
 
 void reset(void) {
 /*	gpio_set_value(RADIO_SDN, 1);
@@ -401,7 +421,20 @@ void clr_interrupt(void)		// 清中断标志
 	spi_write_cmd(4, p);
 	//spi_read(9,GET_INT_STATUS);
 }
+/*
+void clr_interrupt_nosleep(void)		// 清中断标志
+{
+	unsigned char p[4];
 
+	p[0] = GET_INT_STATUS;
+	p[1] = 0;
+	p[2] = 0;
+	p[3] = 0;
+	//SendCmdReceiveAnswer(4,9,p);
+	spi_write_cmd_nosleep(4, p);
+	//spi_read(9,GET_INT_STATUS);
+}
+*/
 void enable_tx_interrupt(void)		// 使能发射中断
 {
 	unsigned char p[6];
@@ -426,7 +459,7 @@ void enable_rx_interrupt(void)		// 使能接收中断
 	p[4] = 0x03;
 	p[5] = 0x18;
 	p[6] = 0x00;
-	spi_write_cmd(0x07, p);
+	spi_write_cmd(7, p);
 }
 
 void tx_start(void)					// 开始发射

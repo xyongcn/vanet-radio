@@ -28,6 +28,7 @@ void tune_tx(void);
 void setFrequency(unsigned long freq); //Not in used
 void si4463_init(void);
 void clr_interrupt(void);
+void clr_interrupt_async(void);
 void enable_tx_interrupt(void);		// 使能发射中断
 void enable_rx_interrupt(void);		// 使能接收中断
 void tx_start(void);

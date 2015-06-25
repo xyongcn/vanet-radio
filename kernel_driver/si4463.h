@@ -33,13 +33,23 @@ struct spidev_data {
 	u8			*buffer;
 };
 
+struct cmd {
+	u8 * data;
+	int len;
+	struct cmd *next;
+};
+
+struct cmd_queue {
+	int count;
+	struct cmd *head;
+};
 
 #define SCKpin  		//13   // SCK
 #define MOSIpin 		//11   // MOSI
 #define MISOpin 		//12   // MISO
 #define CS_SELF   		49	//IO8 //10    // SS
 #define RADIO_SDN   	48	//IO7 //182
-#define NIRQ 			//6  //interrpt
+#define NIRQ 			182 //IO6  //interrpt
 
 struct ed_device{
 	int magic;
@@ -67,10 +77,11 @@ struct si4463_priv
 #define ED_TIMEOUT 5
 
 //inline ssize_t si4463_sync_transfer(struct spidev_data *spidev, size_t len);
-inline ssize_t spidev_sync_transfer(struct spidev_data *spidev, u8 *in_buf, u8 *out_buf, size_t len);
+inline ssize_t spidev_sync_transfer(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t len);
 inline ssize_t spidev_sync_read(struct spidev_data *spidev, size_t len);
 inline ssize_t spidev_sync_write(struct spidev_data *spidev,  size_t len);
-
+//inline ssize_t spidev_sync_write_nosleep(struct spidev_data *spidev,  size_t len);
+inline ssize_t spidev_async_write(struct spidev_data *spidev,  size_t len);
 void ppp(u8 * arr, int len);
 
 #endif
