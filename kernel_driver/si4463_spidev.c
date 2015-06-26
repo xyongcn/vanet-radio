@@ -106,6 +106,8 @@ MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 
 #include "si4463.h"
 #include "si4463_api.h"
+//#include "cmd_queue.h"
+#include "ringbuffer.h"
 
 #include <linux/delay.h>
 #include <linux/kernel.h> /* printk() */
@@ -122,7 +124,7 @@ MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 #include <linux/in6.h>
 #include <asm/checksum.h>
 
-#include <linux/wait.h>
+//#include <linux/wait.h>
 #include <linux/kthread.h>
 
 
@@ -136,8 +138,9 @@ struct net_device *si4463_devs;
 struct spi_device *spi_save;
 struct spidev_data spidev_global;
 
-wait_queue_head_t spi_wait_queue;
-struct cmd_queue *cmd_q_;
+//wait_queue_head_t spi_wait_queue;
+//struct cmd_queue *cmd_queue_head;
+rbuf_t cmd_ringbuffer;
 struct task_struct *cmd_handler_tsk;
 
 
@@ -1394,9 +1397,9 @@ static int spidev_probe(struct spi_device *spi)
 	}
 
 	/* Waiting Queue */
-	init_waitqueue_head(&spi_wait_queue);
-	cmd_q_ = kmalloc(sizeof(struct cmd_queue), GFP_ATOMIC);
-	cmd_q_->count = 0;
+	//init_waitqueue_head(&spi_wait_queue);
+	//cmd_queue_head = kmalloc(sizeof(struct cmd_queue), GFP_ATOMIC);
+	//cmd_queue_head->count = 0;
 
 	return status;
 }
@@ -1482,28 +1485,44 @@ void si4463_rx(struct net_device *dev, int len, unsigned char *buf)
 
 static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 {
+	//printk(KERN_ALERT "INTERRRRRRR1111\n");
+
 	struct net_device *dev;
 	dev = (struct net_device *) dev_id;
 
     //get data from hardware register
 
 	si4463_rx(dev,100,netbuffer);
-	//clr_interrupt_nosleep();
-	cmd_q_->count++;
-	wake_up_interruptible(&spi_wait_queue);
+
+	//cmd_queue_head->count++;
+	struct cmd cmd_;
+	cmd_.type = READFIFO_CMD;
+	u8 str = "test!";
+	cmd_.data = &str;
+	cmd_.len = 6;
+	//insert_back(cmd_queue_head, &cmd_);
+	rbuf_enqueue(&cmd_ringbuffer, &cmd_);
+
+	//wake_up_interruptible(&spi_wait_queue);
 
 	return IRQ_HANDLED;
 }
 
 static int cmd_queue_handler(void *data){
+	struct cmd *cmd_;
 	while(1){
 		printk(KERN_ALERT "cmd_queue_handler:1\n");
-		if (wait_event_interruptible(spi_wait_queue, cmd_q_->count != 0)) {
-			return -ERESTARTSYS;
-		}
-		printk(KERN_ALERT "cmd_queue_handler:2, count: %d\n", cmd_q_->count);
-		cmd_q_->count--;
+		//if (wait_event_interruptible(spi_wait_queue, cmd_queue_head->count != 0)) {
+		//	return -ERESTARTSYS;
+		//}
+		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
+		printk(KERN_ALERT "cmd_queue_handler:2, count: %d\n", rbuf_len(&cmd_ringbuffer));
+		//cmd_queue_head->count--;
 		clr_interrupt();
+
+		//cmd_ = get_front(cmd_queue_head);
+		printk(KERN_ALERT "Get CMD: len: %d\n", cmd_->len);
+		printk(KERN_ALERT "Get CMD: data: %s\n", cmd_->data);
 	}
 
 }
@@ -1537,6 +1556,7 @@ int si4463_open(struct net_device *dev)
 
 	mdelay(2000);
 
+	/* IRQ */
 	int irq = gpio_to_irq(NIRQ);
 	irq_set_irq_type(irq, IRQ_TYPE_EDGE_FALLING);
 
@@ -1547,6 +1567,10 @@ int si4463_open(struct net_device *dev)
 		return ret;
 	}
 
+	/*RING BUFFER */
+	rbuf_init(&cmd_ringbuffer);
+
+	/*CMD HANDLER*/
 	cmd_handler_tsk = kthread_run(cmd_queue_handler, NULL, "cmd_queue_handler");
 	if (IS_ERR(cmd_handler_tsk)) {
 		printk(KERN_ALERT "create kthread failed!\n");

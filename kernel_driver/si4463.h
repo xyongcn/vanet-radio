@@ -33,16 +33,13 @@ struct spidev_data {
 	u8			*buffer;
 };
 
-struct cmd {
-	u8 * data;
-	int len;
-	struct cmd *next;
-};
+
 
 struct cmd_queue {
 	int count;
 	struct cmd *head;
 };
+
 
 #define SCKpin  		//13   // SCK
 #define MOSIpin 		//11   // MOSI
