@@ -1,17 +1,17 @@
-±àÒë
+ç¼–è¯‘
 ====
-Ö´ĞĞmake¼´¿ÉÍê³É±àÒë£¬Èç¹ûÊÇ½»²æ±àÒë£¬ÔòÌæ»»ÏàÓ¦µÄ±àÒëÆ÷¡£ÈôÊÇ±àÒëµ½Android£¬ÀûÓÃndk-build¼´¿ÉÍê³É¡£
+æ‰§è¡Œmakeå³å¯å®Œæˆç¼–è¯‘ï¼Œå¦‚æœæ˜¯äº¤å‰ç¼–è¯‘ï¼Œåˆ™æ›¿æ¢ç›¸åº”çš„ç¼–è¯‘å™¨ã€‚è‹¥æ˜¯ç¼–è¯‘åˆ°Androidï¼Œåˆ©ç”¨ndk-buildå³å¯å®Œæˆã€‚
 
-dtn2ºÍbytewalla²¿·ÖµÄ²îÒì
+dtn2å’Œbytewallaéƒ¨åˆ†çš„å·®å¼‚
 ====
- ²ÎÊı£º   
+ å‚æ•°ï¼š   
  Option:   
- -t\t:<dtn2=0|bytewalla=1(type of DTN,default is dtn2)>   
- -p\t:<(payload dir)>    
- -d\t:<destination eid>    
- -m\t:<source eid>    
- -s\t:<shared dir>    
- -l\t:<dtn2|bytewalla received bundle log dir>   
- -r\t:<this program's running log file path>    
+ -t:dtn2=0|bytewalla=1(type of DTN,default is dtn2)   
+ -p:payload dir    
+ -d:destination eid    
+ -m:source eid    
+ -s:shared dir    
+ -l:dtn2|bytewalla received bundle log dir   
+ -r:this program's running log file path    
  
- ¸ù¾İ²ÎÊıÖĞ-tÖ¸¶¨µÄÊÇ0»òÕß1´Ó¶øÈ´·ÖÊÇDTN2»¹ÊÇbytewalla,×ÜµÄÀ´ËµÃ»ÓĞÇø±ğ£¬Ö»ÊÇÔÚÖ´ĞĞdtnsend½Å±¾µÄÊ±ºòÓĞ²îÒì£¬ÔÚfile_watch.cÎÄ¼şµÄdtn2_sendº¯ÊıÖĞ£¬ĞŞ¸Äcmd×Ö·û´®¼´¿É´ïµ½ĞŞ¸ÄÏàÓ¦µÄdtnsendÃüÁî¡£   
+ æ ¹æ®å‚æ•°ä¸­-tæŒ‡å®šçš„æ˜¯0æˆ–è€…1ä»è€Œå´åˆ†æ˜¯DTN2è¿˜æ˜¯bytewalla,æ€»çš„æ¥è¯´æ²¡æœ‰åŒºåˆ«ï¼Œåªæ˜¯åœ¨æ‰§è¡Œdtnsendè„šæœ¬çš„æ—¶å€™æœ‰å·®å¼‚ï¼Œåœ¨file_watch.cæ–‡ä»¶çš„dtn2_sendå‡½æ•°ä¸­ï¼Œä¿®æ”¹cmdå­—ç¬¦ä¸²å³å¯è¾¾åˆ°ä¿®æ”¹ç›¸åº”çš„dtnsendå‘½ä»¤ã€‚   
