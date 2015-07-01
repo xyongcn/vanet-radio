@@ -1,0 +1,367 @@
+#include "com_pandaboardControl_pandaboardbluetoothlinaro_l2capSocket_L2capServer.h"
+
+#include <android/log.h>  
+#include <stdio.h>
+#include <sys/types.h>         
+#include <sys/socket.h>
+#include <stdlib.h>
+#include <poll.h>
+#include <string.h>
+
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/hci.h>
+#include <bluetooth/hci_lib.h>
+#include <bluetooth/l2cap.h>
+
+#define LOG_TAG "logfromc"  
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)  
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)  
+
+
+//global var
+int servicelife=0;//the state of service thread
+int readthreadlife=0;//the state of read thread
+int sk=0;//server socket num
+int nsk=0;//connection id
+
+JNIEnv * rtenv;//rtenv for read thread
+jobject rtobj;//rtobj for read thread
+
+//function
+//void * Read_thread(void* pSK);
+void closeconnection();
+void closeservice();
+char* jstring2char(JNIEnv* env, jstring jstr);
+
+//l2capaccept,accept for all connection
+JNIEXPORT void JNICALL Java_com_pandaboardControl_pandaboardbluetoothlinaro_l2capSocket_L2capServer_l2capaccept
+  (JNIEnv * env, jobject obj)
+{
+
+	int iRel=0;//for error detection
+	struct sockaddr_l2 local_addr;
+
+	sk = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);  //发送数据，使用SOCK_SEQPACKET为好
+	if(sk < 0)
+	{
+		LOGI("can't create socket");
+		return ;
+	}
+
+	//bind
+	local_addr.l2_family = PF_BLUETOOTH;
+	//local_addr.l2_psm = htobs(atoi(argv[argc -1]));  //last psm
+	local_addr.l2_psm = htobs(0x1001);
+	bacpy(&local_addr.l2_bdaddr, BDADDR_ANY);
+	iRel = bind(sk, (struct sockaddr *)&local_addr, sizeof(local_addr));
+	if(iRel < 0)
+	{
+		LOGI("can't bind");
+		return ;
+	}
+
+	//listen
+	iRel = listen(sk, 10);
+	if(iRel < 0)
+	{
+		LOGI("can't listen");
+		return ;
+	}
+
+
+	int len=0;
+	struct sockaddr_l2 remote_addr;//remote device
+	char str[16];
+	char buf[1024] = {0};//read buff
+
+//set the globe var
+	rtenv=env;
+	rtobj=obj;
+
+	len = sizeof(struct sockaddr_l2);
+	servicelife=1;//init servicelife
+	while(servicelife)
+	{
+		LOGI("wait for connection");
+		memset(&remote_addr, 0, sizeof(struct sockaddr_l2));
+		nsk = accept(sk, (struct sockaddr*)(&remote_addr), &len);
+		if(nsk < 0)
+		{
+			LOGI("accept connection error");
+			continue;
+		}
+
+		//call java function that has received a connection
+		char* classname="com/pandaboardControl/pandaboardbluetoothlinaro/l2capSocket/L2capServer";
+		jclass dpclass = (*env)->FindClass(env,classname); 
+
+		if (dpclass == 0) {  
+		    	LOGI("not find class:%s",classname);
+			return  ;
+		}
+
+		jmethodID methodID = (*env)->GetMethodID(env,dpclass,"accept","()Lcom/pandaboardControl/pandaboardbluetoothlinaro/l2capSocket/L2capSocket;");  
+	    	
+	    	if (methodID == 0) {  
+		    	LOGI("not find method");  
+			return ;
+		}
+	    	(*env)->CallObjectMethod(env, obj,methodID); //call remote Method
+
+		//print the remote address
+		ba2str(&(remote_addr.l2_bdaddr), str);
+		LOGI("accept connection frome device:[%s]", str);  //得到peer的信息
+
+		
+		readthreadlife=1;
+/*
+		//create a new thread to receive message
+		iRel = pthread_create(&nth, NULL, Read_thread, &nsk);
+		if(iRel != 0)
+		{
+			LOGI("pthread_create error");
+			continue;
+		}
+		pthread_detach(nth);  // 分离之
+*/
+		//read thread
+		struct   pollfd   fds[100];
+
+		fds[0].fd   =   nsk;
+		fds[0].events   =   POLLIN   |   POLLHUP;
+
+		while(readthreadlife)
+		{
+			if(poll(fds, 1, -1) < 0)
+			{
+				LOGI("poll():");
+			}
+			//connection disruption
+			if(fds[0].revents & POLLHUP)
+			{
+				//hang up
+				LOGI("read thread Hang up");
+				closeconnection();
+
+				break;
+			}
+
+			if(fds[0].revents & POLLIN)
+			{
+				memset(buf, 0 , 1024);
+				//read data
+				iRel = read(nsk,buf,sizeof(buf));
+				LOGI("data:%s",buf);
+
+				//call java function that has received a connection
+				char* classname="com/pandaboardControl/pandaboardbluetoothlinaro/l2capSocket/L2capServer";
+				jclass dpclass = (*env)->FindClass(env,classname); 
+
+				if (dpclass == 0) 
+				{  
+				    	LOGI("not find class:%s",classname);
+					return  ;
+				}
+
+				jmethodID methodID = (*env)->GetMethodID(env,dpclass,"receive","(Ljava/lang/String;)V");  
+			    	
+			    	if (methodID == 0) 
+				{  
+				    	LOGI("not find method");  
+					return ;
+				}
+			    	(*env)->CallVoidMethod(env, obj,methodID,(*env)->NewStringUTF(env,buf)); //call remote Method,maybe wrong data
+			}
+	  
+		}
+	
+	}//servicelife loop
+}
+
+/*
+//read thread
+void * Read_thread(void* pSK)
+{
+	//struct pollfd fds[10];
+	struct   pollfd   fds[100];
+	char buf[1024] = {0};
+	int iRel = 0;
+	int exit_val = 0;
+
+
+	//fds[0].fd = *(int*)pSK;
+	//fds[0].events = POLLIN | POLLHUP;
+
+	fds[0].fd   =   (int)(*(int*)pSK);
+	fds[0].events   =   POLLIN   |   POLLHUP;
+
+	while(readthreadlife)
+	{
+		if(poll(fds, 1, -1) < 0)
+		{
+			LOGI("poll():");
+		}
+		//connection disruption
+		if(fds[0].revents & POLLHUP)
+		{
+			//hang up
+			LOGI("read thread Hang up");
+
+			readthreadlife=0;
+			close(*(int*)pSK);//close connection
+			pthread_exit(&exit_val);//close thread
+
+			break;
+		}
+
+		if(fds[0].revents & POLLIN)
+		{
+			memset(buf, 0 , 1024);
+			//read data
+			//iRel = recv(*(int*)pSK, buf, 572, 0);
+			iRel = read(*(int*)pSK,buf,sizeof(buf));
+//			printf("Handle[%d] Receive [%d]\n", *(int*)pSK, iRel);
+			LOGI("data:%s",buf);
+
+			
+			//call java function that has received a connection
+			char* classname="com/pandaboardControl/pandaboardbluetoothlinaro/l2capSocket/L2capServer";
+			jclass dpclass = (*rtenv)->FindClass(rtenv,classname); 
+
+			if (dpclass == 0) 
+			{  
+			    	LOGI("not find class:%s",classname);
+				return  ;
+			}
+
+			jmethodID methodID = (*rtenv)->GetMethodID(rtenv,dpclass,"receive","(Ljava/lang/String;)V");  
+		    	
+		    	if (methodID == 0) 
+			{  
+			    	LOGI("not find method");  
+				return ;
+			}
+		    	(*rtenv)->CallVoidMethod(rtenv, rtobj,methodID,(*rtenv)->NewStringUTF(rtenv,"receive msg")); //call remote Method,maybe wrong data
+		}
+  
+	}
+
+	return 0;
+}
+*/
+
+//close connection
+void closeconnection()
+{
+	readthreadlife=0;
+	close(nsk);
+
+//call java to send close msg
+	char* classname="com/pandaboardControl/pandaboardbluetoothlinaro/l2capSocket/L2capServer";
+	jclass dpclass = (*rtenv)->FindClass(rtenv,classname); 
+
+	if (dpclass == 0) 
+	{  
+	    	LOGI("not find class:%s",classname);
+		return  ;
+	}
+
+	jmethodID methodID = (*rtenv)->GetMethodID(rtenv,dpclass,"closeconnection","()V");  
+
+	if (methodID == 0) 
+	{  
+	    	LOGI("not find method");  
+		return ;
+	}
+	(*rtenv)->CallVoidMethod(rtenv, rtobj,methodID); //call remote Method,maybe wrong data
+}
+//close service
+void closeservice()
+{
+	readthreadlife=0;
+	close(nsk);
+	servicelife=0;
+	close(sk);
+
+//call java to send close msg
+	char* classname="com/pandaboardControl/pandaboardbluetoothlinaro/l2capSocket/L2capServer";
+	jclass dpclass = (*rtenv)->FindClass(rtenv,classname); 
+
+	if (dpclass == 0) 
+	{  
+	    	LOGI("not find class:%s",classname);
+		return  ;
+	}
+
+	jmethodID methodID = (*rtenv)->GetMethodID(rtenv,dpclass,"closeservice","()V");  
+
+	if (methodID == 0) 
+	{  
+	    	LOGI("not find method");  
+		return ;
+	}
+	(*rtenv)->CallVoidMethod(rtenv, rtobj,methodID); //call remote Method,maybe wrong data
+}
+
+/*
+ * Class:     com_pandaboardControl_pandaboardbluetoothlinaro_l2capSocket_L2capServer
+ * Method:    l2capwrite
+ * Signature: (Ljava/lang/String;)V
+ */
+//l2capwrite,send msg to remote device
+JNIEXPORT void JNICALL Java_com_pandaboardControl_pandaboardbluetoothlinaro_l2capSocket_L2capServer_l2capwrite
+  (JNIEnv * env, jobject obj, jstring string)
+{
+	if(readthreadlife)
+	{
+		char * cstr=jstring2char(env,string);
+		LOGI("l2cap send:%s",cstr);
+		strcat(cstr,"\n");
+		write(nsk,cstr,strlen(cstr)+1);
+	}
+}
+
+/*
+ * Class:     com_pandaboardControl_pandaboardbluetoothlinaro_l2capSocket_L2capServer
+ * Method:    l2capcloseservice
+ * Signature: ()V
+ */
+//l2capcloseservice,close the service 
+JNIEXPORT void JNICALL Java_com_pandaboardControl_pandaboardbluetoothlinaro_l2capSocket_L2capServer_l2capcloseservice
+  (JNIEnv * env, jobject obj)
+{
+	closeservice();
+}
+
+/*
+ * Class:     com_pandaboardControl_pandaboardbluetoothlinaro_l2capSocket_L2capServer
+ * Method:    l2capclosecon
+ * Signature: ()V
+ */
+//l2capclosecon,close the connection
+JNIEXPORT void JNICALL Java_com_pandaboardControl_pandaboardbluetoothlinaro_l2capSocket_L2capServer_l2capclosecon
+  (JNIEnv * env, jobject obj)
+{
+	closeconnection();
+}
+
+//convert jstring to char*
+char* jstring2char(JNIEnv* env, jstring jstr)
+{
+	char*   rtn   =   NULL;  
+	jclass   clsstring   =   (*env)->FindClass(env,"java/lang/String");  
+	jstring   strencode   =   (*env)->NewStringUTF(env,"utf-8");  
+	jmethodID   mid   =   (*env)->GetMethodID(env,clsstring,   "getBytes",   "(Ljava/lang/String;)[B");  
+	jbyteArray   barr=   (jbyteArray)(*env)->CallObjectMethod(env,jstr,mid,strencode); // String .getByte("GB2312");  
+	jsize   alen   =   (*env)->GetArrayLength(env,barr);  
+	jbyte*   ba   =   (*env)->GetByteArrayElements(env,barr,JNI_FALSE);  
+	if(alen   >   0)  
+	{  
+	rtn   =   (char*)malloc(alen+1);         //new   char[alen+1]; "\0"  
+	memcpy(rtn,ba,alen);  
+	rtn[alen]=0;  
+	}  
+	(*env)->ReleaseByteArrayElements(env,barr,ba,0);  //释放内存  
+
+	return rtn;  
+}
