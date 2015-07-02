@@ -371,8 +371,18 @@ void * watchFile(void *s)
 					// parse payload
 					char payload_filename[256];
 					memset(payload_filename,'\0',sizeof(payload_filename));
-					sprintf(payload_filename,"%s/payload_%s",temp_s->payload_dir,event->name);
-					
+					if(temp_s->dtn_type==DTN2)
+					{
+						sprintf(payload_filename,"%s/payload_%s",temp_s->payload_dir,event->name);
+					}
+					else if(temp_s->dtn_type==BYTEWALLA)
+					{
+						sprintf(payload_filename,"%s/bundle_%s.dat",temp_s->payload_dir,event->name);
+					}
+					else
+					{
+						fprintf(stdout,"wrong dtn_type:%d",temp_s->dtn_type);
+					}
 
 					FILE *payload_file=fopen(payload_filename,"r");
 
