@@ -5,6 +5,10 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#include <sys/types.h>    
+#include <sys/stat.h>    
+#include <fcntl.h>
+
 #include "queue.h"
 
 typedef struct file_and_type
@@ -131,23 +135,34 @@ int main(int argc, char *argv[])
 		print_usage();
 		return -1;
 	}
-  /*else
-  {
-    printf("dtn_type:%d\n",dtn_type);
-    printf("payload_dir:%s\n",payload_dir);
-    printf("destination_eid:%s\n",destination_eid);
-    printf("dtn_shared_dir:%s\n",dtn_shared_dir);
-    printf("dtn_log_dir:%s\n",dtn_log_dir);
-    printf("program_log:%s\n",program_log);
-    return -1;
-  }*/
-	/*if(argc < 2)
-	{
-		fprintf(stderr, "%s path\n", argv[0]);
-		return -1;
-	}*/
-
-	// watchFile(argv[1],1);
+  
+  	//stdout redirect to File
+  	/*char program_log_filename[256];
+  	memset(program_log_filename,'\0',sizeof(program_log_filename));
+  	sprintf(program_log_filename,"%s/dtn2-bytewalla-app.log",program_log_filename);
+	int out=open(program_log_filename, O_CREAT |  O_RDWR);
+  	if(out>0)
+  	{
+  		dup2(out,fileno(stdout));
+  	}
+  	else
+  	{
+  		printf("redirect stdout to file %s failed \n");
+  	}*/
+  	char program_log_filename[128];
+  	memset(program_log_filename,'\0',sizeof(program_log_filename));
+  	sprintf(program_log_filename,"%s/dtn2-bytewalla-app.log",program_log);
+  	printf("logfile:%s\n",program_log_filename);
+  	remove(program_log_filename);
+  	int out=open(program_log_filename,O_CREAT|O_RDWR,S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  	if(out>0)
+  	{
+  		dup2(out,fileno(stdout));
+  	}
+  	else
+  	{
+  		printf("redirect stdout to file %s failed \n");
+  	}
 
 //watched log dir
 	file_type *f_logdir_type=(file_type *)malloc(sizeof(file_type));

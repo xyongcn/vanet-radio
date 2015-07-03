@@ -10,7 +10,7 @@ OBJS=queue.o file_watch.o file_queue.o
 all: file_watch
 
 file_watch: $(OBJS)
-	$(CC) $(CFLAGS) $(OBJS) -o file_watch $(LDFLAGS)
+	$(CC) $(CFLAGS) $(OBJS) -o dtn2-bytewalla-app $(LDFLAGS)
 
 clean:
-	rm -f $(OBJS) *.bak file_watch
+	rm -f $(OBJS) *.bak file_watch dtn2-bytewalla-app
