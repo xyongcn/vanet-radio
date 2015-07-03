@@ -186,6 +186,7 @@ int main(int argc, char *argv[])
 	f_shared_type->destination_eid=destination_eid;
 	f_shared_type->dtn_shared_dir=dtn_shared_dir;
 	f_shared_type->program_log=program_log;
+	f_shared_type->local_eid=local_eid;
 
 	pthread_t watchSharedDir;
 	t=pthread_create(&watchSharedDir,NULL,watchFile,f_shared_type);
