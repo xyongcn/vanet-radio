@@ -159,6 +159,7 @@ int main(int argc, char *argv[])
 	f_logdir_type->destination_eid=destination_eid;
 	f_logdir_type->dtn_shared_dir=dtn_shared_dir;
 	f_logdir_type->program_log=program_log;
+	f_logdir_type->local_eid=local_eid;
 	/*int dtn_type;
 	char *payload_dir=NULL;
 	char *destination_eid=NULL;
@@ -371,11 +372,11 @@ void * watchFile(void *s)
 					// parse payload
 					char payload_filename[256];
 					memset(payload_filename,'\0',sizeof(payload_filename));
-					if(temp_s->dtn_type==DTN2)
+					if(temp_s->dtn_type==BYTEWALLA)
 					{
 						sprintf(payload_filename,"%s/payload_%s",temp_s->payload_dir,event->name);
 					}
-					else if(temp_s->dtn_type==BYTEWALLA)
+					else if(temp_s->dtn_type==DTN2)
 					{
 						sprintf(payload_filename,"%s/bundle_%s.dat",temp_s->payload_dir,event->name);
 					}
