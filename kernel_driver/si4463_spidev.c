@@ -127,6 +127,8 @@ MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 //#include <linux/wait.h>
 #include <linux/kthread.h>
 
+#include <linux/fs.h>
+
 
 #define IRQ_NET_CHIP  20//需要根据硬件确定
 
@@ -134,584 +136,57 @@ MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 /* GLOBAL */
 static char  netbuffer[100];
 struct net_device *si4463_devs;
+struct net_device *tmp_devs;
 
 struct spi_device *spi_save;
 struct spidev_data spidev_global;
+struct spidev_data *spidev_test_global;
 
 //wait_queue_head_t spi_wait_queue;
 //struct cmd_queue *cmd_queue_head;
 rbuf_t cmd_ringbuffer;
 struct task_struct *cmd_handler_tsk;
 
-
-#ifdef SI4463
-
-
-
-
-
-void ppp(u8 * arr, int len){
-	int i = 0;
-	printk(KERN_ALERT "ppp: len=[%d]\n", len);
-	for(;i<len;i++)
-		printk(KERN_ALERT "%x ", arr[i]);
-	printk(KERN_ALERT "\n");
-}
-/*-------------------------------------------------------------------------*/
-
-/*
- * We can't use the standard synchronous wrappers for file I/O; we
- * need to protect against async removal of the underlying spi_device.
- */
-static void si4463_complete(void *arg)
-{
-	complete(arg);
-}
-
-static ssize_t
-si4463_sync(struct spidev_data *spidev, struct spi_message *message)
-{
-	gpio_set_value(CS_SELF, 0);
-
-	DECLARE_COMPLETION_ONSTACK(done);
-	int status;
-
-	message->complete = si4463_complete;
-	message->context = &done;
-
-	spin_lock_irq(&spidev->spi_lock);
-	if (spidev->spi == NULL)
-		status = -ESHUTDOWN;
-	else
-		status = spi_async(spidev->spi, message);
-	spin_unlock_irq(&spidev->spi_lock);
-
-	if (status == 0) {
-		wait_for_completion(&done);
-		status = message->status;
-		if (status == 0)
-			status = message->actual_length;
-	}
-
-	gpio_set_value(CS_SELF, 1);
-	return status;
-}
-
-inline ssize_t
-si4463_sync_transfer(struct spidev_data *spidev, u8 *in_buf, u8 *out_buf, size_t len)
-{
-	struct spi_transfer	t = {
-			.tx_buf		= in_buf,
-			.rx_buf		= out_buf,
-			.len		= len,
-		};
-	struct spi_message	m;
-
-	spi_message_init(&m);
-	spi_message_add_tail(&t, &m);
-	return si4463_sync(spidev, &m);
-}
-
-inline ssize_t
-si4463_sync_write(struct spidev_data *spidev,  size_t len)
-{
-	struct spi_transfer	t = {
-			.tx_buf		= spidev->buffer,
-			.len		= len,
-		};
-	struct spi_message	m;
-
-	spi_message_init(&m);
-	spi_message_add_tail(&t, &m);
-	return si4463_sync(spidev, &m);
-}
-
-inline ssize_t
-si4463_sync_read(struct spidev_data *spidev, size_t len)
-{
-	struct spi_transfer	t = {
-			.rx_buf		= spidev->buffer,
-			.len		= len,
-		};
-	struct spi_message	m;
-
-	spi_message_init(&m);
-	spi_message_add_tail(&t, &m);
-	return si4463_sync(spidev, &m);
-}
-
-
-
-
-
-/*
- * si4463_rx,recieves a network packet and put the packet into TCP/IP up
- * layer,netif_rx() is the kernel API to do such thing. The recieving
- * procedure must alloc the sk_buff structure to store the data,
- * and the sk_buff will be freed in the up layer.
- */
-
-void si4463_rx(struct net_device *dev, int len, unsigned char *buf)
-{
-	printk("si4463_rx\n");
-
-    struct sk_buff *skb;
-    struct si4463_priv *priv = netdev_priv(dev);//(struct si4463_priv *) dev->priv;
-
-    skb = dev_alloc_skb(len+2);
-    if (!skb) {
-        printk("si4463_rx can not allocate more memory to store the packet. drop the packet\n");
-        priv->stats.rx_dropped++;
-        return;
-    }
-    skb_reserve(skb, 2);
-    memcpy(skb_put(skb, len), buf, len);
-
-    skb->dev = dev;
-    skb->protocol = eth_type_trans(skb, dev);
-    /* We need not check the checksum */
-    skb->ip_summed = CHECKSUM_UNNECESSARY;
-    priv->stats.rx_packets++;
-
-    netif_rx(skb);
-    return;
-}
-
-static irqreturn_t si4463__interrupt (int irq, void *dev_id)
-{
-	struct net_device *dev;
-	dev = (struct net_device *) dev_id;
-
-    //get data from hardware register
-
-	si4463_rx(dev,100,netbuffer);
-
-	return IRQ_HANDLED;
-}
-
-
-
-int si4463_open(struct net_device *dev)
-{
-	int ret=0;
-	printk(KERN_ALERT "si4463_o2pen\n");
-
-
-    ret = request_irq(IRQ_NET_CHIP, si4463__interrupt, IRQF_SHARED,
-			  dev->name, dev);
-	if (ret)
-		return ret;
-    printk("request_irq ok\n");
-
-    //getCTS();
-
-	netif_start_queue(dev);
-
-	gpio_set_value(RADIO_SDN, 0);//enable
-
-	getCTS();
-	reset();
-
-    return 0;
-}
-
-int si4463_release(struct net_device *dev)
-{
-	printk("si4463_release\n");
-    netif_stop_queue(dev);
-    gpio_set_value(RADIO_SDN, 1);//disable
-    return 0;
-}
-
-/*
- * pseudo network hareware transmit,it just put the data into the
- * ed_tx device.
- */
-
-void si4463_hw_tx(char *buf, int len, struct net_device *dev)
-{
-	printk("si4463_hw_rx\n");
-    struct si4463_priv *priv;
-
-    /* check the ip packet length,it must more then 34 octets */
-    if (len < sizeof(struct ethhdr) + sizeof(struct iphdr))
-	{
-        printk("Bad packet! It's size is less then 34!\n");
-        return;
-    }
-    /* record the transmitted packet status */
-    priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
-    priv->stats.tx_packets++;
-    priv->stats.rx_bytes += len;
-
-    /* remember to free the sk_buffer allocated in upper layer. */
-    dev_kfree_skb(priv->skb);
-}
-
-/*
- * Transmit the packet,called by the kernel when there is an
- * application wants to transmit a packet.
- */
-
-int si4463_tx(struct sk_buff *skb, struct net_device *dev)
-{
-	printk("si4463_tx\n");
-    int len;
-    char *data;
-    struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
-
-    len = skb->len < ETH_ZLEN ? ETH_ZLEN : skb->len;
-    data = skb->data;
-    /* stamp the time stamp */
-    dev->trans_start = jiffies;
-
-    /* remember the skb and free it in si4463_hw_tx */
-    priv->skb = skb;
-
-    /* pseudo transmit the packet,hehe */
-    si4463_hw_tx(data, len, dev);
-
-    return 0;
-}
-
-/*
- * Deal with a transmit timeout.
- */
-void si4463_tx_timeout (struct net_device *dev)
-{
-    struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
-    priv->stats.tx_errors++;
-    netif_wake_queue(dev);
-
-    return;
-}
-
-
-
-/*
- * When we need some ioctls.
- */
-int si4463_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
-{
-	printk("si4463_ioctl\n");
-    return 0;
-}
-
-/*
- * ifconfig to get the packet transmitting status.
- */
-
-struct net_device_stats *si4463_stats(struct net_device *dev)
-{
-    struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
-    return &priv->stats;
-}
-
-/*
- * TCP/IP handshake will call this function, if it need.
- */
-int si4463_change_mtu(struct net_device *dev, int new_mtu)
-{
-    unsigned long flags;
-    spinlock_t *lock = &((struct si4463_priv *) netdev_priv(dev)/*dev->priv*/)->lock;
-
-    /* en, the mtu CANNOT LESS THEN 68 OR MORE THEN 1500. */
-    if (new_mtu < 68)
-        return -EINVAL;
-
-    spin_lock_irqsave(lock, flags);
-    dev->mtu = new_mtu;
-    spin_unlock_irqrestore(lock, flags);
-
-    return 0;
-}
-
-static const struct net_device_ops my_netdev_ops = {
-
-	.ndo_open            = si4463_open,
-	.ndo_stop            = si4463_release,
-	.ndo_start_xmit = si4463_tx,
-	.ndo_do_ioctl        = si4463_ioctl,
-	.ndo_get_stats       = si4463_stats,
-	.ndo_change_mtu      = si4463_change_mtu,
-	.ndo_tx_timeout      = si4463_tx_timeout,
-};
-void si4463_init(struct net_device *dev)
-{
-
-	struct si4463_priv *priv;
-	ether_setup(dev); /* assign some of the fields */
-
-	dev->netdev_ops = &my_netdev_ops;
-
-	dev->dev_addr[0] = 0x18;//(0x01 & addr[0])为multicast
-	dev->dev_addr[1] = 0x02;
-	dev->dev_addr[2] = 0x03;
-	dev->dev_addr[3] = 0x04;
-	dev->dev_addr[4] = 0x05;
-	dev->dev_addr[5] = 0x06;
-
-	/* keep the default flags, just add NOARP */
-	dev->flags           |= IFF_NOARP;
-	dev->features        |= NETIF_F_HW_CSUM;
-	/*
-	 * Then, initialize the priv field. This encloses the statistics
-	 * and a few private fields.
-	 */
-	priv = netdev_priv(dev);
-	memset(priv, 0, sizeof(struct si4463_priv));
-	spin_lock_init(&priv->lock);
-}
-
-
-
-
-static int spidev_probe(struct spi_device *spi)
-{
-	spi_save = spi;
-	spidev_global.spi = spi;
-	spin_lock_init(&spidev_global.spi_lock);
-	mutex_init(&spidev_global.buf_lock);
-
-	struct spidev_data	*spidev;
-	int			status;
-	unsigned long		minor;
-
-	int saved_muxing = 0;
-	int 		ret = 0;
-	int			err = 0;
-	int			retval = 0;
-	u32			tmp;
-	unsigned	n_ioc;
-	struct spi_ioc_transfer	*ioc;
-
-	/* Allocate driver data */
-	spidev = kzalloc(sizeof(*spidev), GFP_KERNEL);
-	if (!spidev)
-		return -ENOMEM;
-
-	/* Initialize the driver data */
-	spidev->spi = spi;
-	spin_lock_init(&spidev->spi_lock);
-	mutex_init(&spidev->buf_lock);
-
-	INIT_LIST_HEAD(&spidev->device_entry);
-
-	/* If we can allocate a minor number, hook up this device.
-	 * Reusing minors is fine so long as udev or mdev is working.
-	 */
-	mutex_lock(&device_list_lock);
-	minor = find_first_zero_bit(minors, N_SPI_MINORS);
-	if (minor < N_SPI_MINORS) {
-		struct device *dev;
-
-		spidev->devt = MKDEV(SPIDEV_MAJOR, minor);
-		dev = device_create(spidev_class, &spi->dev, spidev->devt,
-				    spidev, "spidev%d.%d",
-				    spi->master->bus_num, spi->chip_select);
-		status = PTR_RET(dev);
-	} else {
-		dev_dbg(&spi->dev, "no minor number available!\n");
-		status = -ENODEV;
-	}
-	if (status == 0) {
-		set_bit(minor, minors);
-		list_add(&spidev->device_entry, &device_list);
-	}
-	mutex_unlock(&device_list_lock);
-
-	if (status == 0)
-		spi_set_drvdata(spi, spidev);
-	else
-		kfree(spidev);
-
-
-	/* spi setup :
-	 * 		SPI_MODE_0
-	 * 		MSBFIRST
-	 * 		CS active low
-	 * 		IRQ??????
-	 */
-
-	spin_lock_irq(&spidev->spi_lock);
-	spin_unlock_irq(&spidev->spi_lock);
-
-	if (spi == NULL)
-		return -ESHUTDOWN;
-
-	tmp = ~SPI_MODE_MASK;
-
-	printk(KERN_ALERT "init: tmp= %x\n", tmp);
-	tmp |= SPI_MODE_0;
-	//tmp |= SPI_CS_HIGH;
-	//tmp |= SPI_READY;
-	printk(KERN_ALERT "midd: tmp= %x\n", tmp);
-	tmp |= spi->mode & ~SPI_MODE_MASK;
-	printk(KERN_ALERT "after: tmp= %x\n", tmp);
-	spi->mode = (u8)tmp;
-	spi->bits_per_word = BITS_PER_WORD;
-	spi->max_speed_hz = SPI_SPEED;
-
-	ret = spi_setup(spi);
-	if (ret < 0)
-		printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
-	else
-		printk(KERN_ALERT "spi_setup succeed\n");
-
-	/* GPIO setup
-	 *
-	 */
-	/* Request Chip SDN gpios */
-	if (gpio_is_valid(RADIO_SDN)) {
-		//saved_muxing = gpio_get_alt(RADIO_SDN);
-		//lnw_gpio_set_alt(RADIO_SDN, LNW_GPIO);
-		err = gpio_request_one(RADIO_SDN,
-				GPIOF_DIR_OUT | GPIOF_INIT_HIGH, "Radio SDN pin");
-		if (err) {
-			/*pr_err(
-					"%s: unable to get Chip Select GPIO,\
-						fallback to legacy CS mode \n",
-					__func__);*/
-			printk(KERN_ALERT "ERROR! RADIO_SDN request error: %d\n", err);
-			//lnw_gpio_set_alt(RADIO_SDN, saved_muxing);
-		}
-		gpio_direction_output(RADIO_SDN, 1);
-
-	} else {
-		printk(KERN_ALERT "ERROR! invalid pin RADIO_SDN\n");
-	}
-
-	/* Request Chip Select gpios */
-	if (gpio_is_valid(CS_SELF)) {
-		//saved_muxing = gpio_get_alt(CS_SELF);
-		//lnw_gpio_set_alt(CS_SELF, LNW_GPIO);
-		err = gpio_request_one(CS_SELF,
-				GPIOF_DIR_OUT | GPIOF_INIT_HIGH, "Radio CS pin");
-		if (err) {
-			/*pr_err(
-					"%s: unable to get Chip Select GPIO,\
-						fallback to legacy CS mode \n",
-					__func__);*/
-			printk(KERN_ALERT "ERROR! CS_SELF request error: %d\n", err);
-			//lnw_gpio_set_alt(CS_SELF, saved_muxing);
-		}
-		gpio_direction_output(CS_SELF, 1);
-	} else {
-		printk(KERN_ALERT "ERROR! invalid pin CS_SELF\n");
-	}
-
-
-
-
-
-	return status;
-}
-
-static int spidev_remove(struct spi_device *spi)
-{
-	struct spidev_data	*spidev = spi_get_drvdata(spi);
-
-	/* make sure ops on existing fds can abort cleanly */
-	spin_lock_irq(&spidev->spi_lock);
-	spidev->spi = NULL;
-	spi_set_drvdata(spi, NULL);
-	spin_unlock_irq(&spidev->spi_lock);
-
-	/* prevent new opens */
-	mutex_lock(&device_list_lock);
-	list_del(&spidev->device_entry);
-	device_destroy(spidev_class, spidev->devt);
-	clear_bit(MINOR(spidev->devt), minors);
-	if (spidev->users == 0)
-		kfree(spidev);
-	mutex_unlock(&device_list_lock);
-
-	return 0;
-}
-
-static const struct of_device_id spidev_dt_ids[] = {
-	{ .compatible = "rohm,dh2228fv" },
-	{},
+/* FOR DEBUG */
+static u8 tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
+
+/* PIN MUX */
+#define pin_mux_num  26
+const struct gpio pin_mux[pin_mux_num] = {
+		{111, NULL, NULL},
+		{115, NULL, NULL},
+		{114, NULL, NULL},
+		{109, NULL, NULL},
+		{214, GPIOF_INIT_LOW, NULL},
+
+		{263, GPIOF_INIT_HIGH, NULL},
+		{240, GPIOF_INIT_HIGH, NULL},
+		{262, GPIOF_INIT_HIGH, NULL},
+		{241, GPIOF_INIT_HIGH, NULL},
+		{242, GPIOF_INIT_HIGH, NULL},
+		{243, GPIOF_INIT_HIGH, NULL},
+		{258, GPIOF_INIT_HIGH, NULL},
+		{259, GPIOF_INIT_HIGH, NULL},
+		{260, GPIOF_INIT_LOW, NULL},
+		{261, GPIOF_INIT_HIGH, NULL},
+		{226, GPIOF_DIR_IN, NULL},
+		{227, GPIOF_DIR_IN, NULL},
+		{228, GPIOF_DIR_IN, NULL},
+		{229, GPIOF_DIR_IN, NULL},
+
+		/*IO7 and IO8*/
+		{256, GPIOF_INIT_HIGH, NULL},
+		{224, GPIOF_DIR_IN, NULL},
+		{255, GPIOF_INIT_HIGH, NULL},
+		{223, GPIOF_DIR_IN, NULL},
+
+		/*IO6*/
+		{254, GPIOF_INIT_LOW, NULL},
+		{222, GPIOF_DIR_IN, NULL},
+		{182, GPIOF_DIR_IN, NULL}
 };
 
-MODULE_DEVICE_TABLE(of, spidev_dt_ids);
 
-static struct spi_driver spidev_spi_driver = {
-	.driver = {
-		.name =		"spidev",
-		.owner =	THIS_MODULE,
-		.of_match_table = of_match_ptr(spidev_dt_ids),
-	},
-	.probe =	spidev_probe,
-	.remove =	spidev_remove,
-
-	/* NOTE:  suspend/resume methods are not necessary here.
-	 * We don't do anything except pass the requests to/from
-	 * the underlying controller.  The refrigerator handles
-	 * most issues; the controller driver handles the rest.
-	 */
-};
-
-void si4463_cleanup(void)
-{
-	gpio_free(RADIO_SDN);
-	gpio_free(CS_SELF);
-	if (si4463_devs)
-	{
-		unregister_netdev(si4463_devs);
-		free_netdev(si4463_devs);
-	}
-	spi_unregister_driver(&spidev_spi_driver);
-	class_destroy(spidev_class);
-	return;
-}
-
-int si4463_init_module(void)
-{
-
-	int result,ret = -ENOMEM;
-
-	/* Claim our 256 reserved device numbers.  Then register a class
-	 * that will key udev/mdev to add/remove /dev nodes.  Last, register
-	 * the driver which manages those device numbers.
-	 */
-	BUILD_BUG_ON(N_SPI_MINORS > 256);
-
-	spidev_class = class_create(THIS_MODULE, "spidev");
-	if (IS_ERR(spidev_class)) {
-		unregister_chrdev(SPIDEV_MAJOR, spidev_spi_driver.driver.name);
-		return PTR_ERR(spidev_class);
-	}
-
-	ret = spi_register_driver(&spidev_spi_driver);
-	if (ret < 0) {
-		printk("spi_register_driver return %d\n",ret);
-		goto out;
-	}
-
-	/* Allocate the devices */
-	si4463_devs = alloc_netdev(sizeof(struct si4463_priv), "rf%d", si4463_init);
-	if (si4463_devs == NULL)
-		goto out;
-
-
-	ret = -ENODEV;
-	if ((result = register_netdev(si4463_devs)))
-		printk("demo: error %i registering device \"%s\"\n",result, si4463_devs->name);
-	else
-		ret = 0;
-out:
-	if (ret)
-		si4463_cleanup();
-	return ret;
-}
-
-
-
-module_init(si4463_init_module);
-module_exit(si4463_cleanup);
-
-#else
 /*
  * We can't use the standard synchronous wrappers for file I/O; we
  * need to protect against async removal of the underlying spi_device.
@@ -1271,6 +746,8 @@ static int spidev_probe(struct spi_device *spi)
 	spin_lock_init(&spidev_global.spi_lock);
 	mutex_init(&spidev_global.buf_lock);
 
+	printk(KERN_ALERT "spidev_probe!\n");
+
 	struct spidev_data	*spidev;
 	int			status;
 	unsigned long		minor;
@@ -1283,7 +760,7 @@ static int spidev_probe(struct spi_device *spi)
 	unsigned	n_ioc;
 	struct spi_ioc_transfer	*ioc;
 
-	/* Allocate driver data */
+	/* Allocate driver dsi4463_devsata */
 	spidev = kzalloc(sizeof(*spidev), GFP_KERNEL);
 	if (!spidev)
 		return -ENOMEM;
@@ -1324,6 +801,54 @@ static int spidev_probe(struct spi_device *spi)
 		kfree(spidev);
 
 
+	/* GPIO setup
+	 *
+	 */
+	/* Request Chip SDN gpios */
+//	if (gpio_is_valid(RADIO_SDN)) {
+//		saved_muxing = gpio_get_alt(RADIO_SDN);
+//		lnw_gpio_set_alt(RADIO_SDN, LNW_GPIO);
+//		err = gpio_request_one(RADIO_SDN,
+//				GPIOF_DIR_OUT | GPIOF_INIT_HIGH, "Radio SDN pin");
+		err = gpio_request(RADIO_SDN,  "Radio SDN pin");
+		if (err) {
+			/*pr_err(
+					"%s: unable to get Chip Select GPIO,\
+						fallback to legacy CS mode \n",
+					__func__);*/
+			printk(KERN_ALERT "ERROR! RADIO_SDN request error: %d\n", err);
+//			lnw_gpio_set_alt(RADIO_SDN, saved_muxing);
+		}
+		gpio_direction_output(RADIO_SDN, 1);
+
+//	} else {
+//		printk(KERN_ALERT "ERROR! invalid pin RADIO_SDN\n");
+//	}
+
+	/* Request Chip Select gpios */
+
+//	if (gpio_is_valid(CS_SELF)) {
+//		saved_muxing = gpio_get_alt(CS_SELF);
+//		lnw_gpio_set_alt(CS_SELF, LNW_GPIO);
+//		err = gpio_request_one(CS_SELF,
+//				GPIOF_DIR_OUT | GPIOF_INIT_HIGH, "Radio CS pin");
+		err = gpio_request(CS_SELF,  "Radio CS pin");
+		if (err) {
+			printk(KERN_ALERT "ERROR! CS_SELF request error: %d\n", err);
+//			lnw_gpio_set_alt(CS_SELF, saved_muxing);
+		}
+		gpio_direction_output(CS_SELF, 1);
+//	} else {
+//		printk(KERN_ALERT "ERROR! invalid pin CS_SELF\n");
+//	}
+//
+//	/*
+//	 *
+//	 */
+//	//gpio_direction_output(SCKpin, 0);
+//	//gpio_direction_output(MOSIpin, 0);
+//	//gpio_direction_input(MISOpin);
+//
 	/* spi setup :
 	 * 		SPI_MODE_0
 	 * 		MSBFIRST
@@ -1356,50 +881,11 @@ static int spidev_probe(struct spi_device *spi)
 		printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
 	else
 		printk(KERN_ALERT "spi_setup succeed\n");
-
-	/* GPIO setup
-	 *
-	 */
-	/* Request Chip SDN gpios */
-	if (gpio_is_valid(RADIO_SDN)) {
-		saved_muxing = gpio_get_alt(RADIO_SDN);
-		lnw_gpio_set_alt(RADIO_SDN, LNW_GPIO);
-		err = gpio_request_one(RADIO_SDN,
-				GPIOF_DIR_OUT | GPIOF_INIT_HIGH, "Radio SDN pin");
-		if (err) {
-			/*pr_err(
-					"%s: unable to get Chip Select GPIO,\
-						fallback to legacy CS mode \n",
-					__func__);*/
-			printk(KERN_ALERT "ERROR! RADIO_SDN request error: %d\n", err);
-			lnw_gpio_set_alt(RADIO_SDN, saved_muxing);
-		}
-		gpio_direction_output(RADIO_SDN, 1);
-
-	} else {
-		printk(KERN_ALERT "ERROR! invalid pin RADIO_SDN\n");
-	}
-
-	/* Request Chip Select gpios */
-
-	if (gpio_is_valid(CS_SELF)) {
-		saved_muxing = gpio_get_alt(CS_SELF);
-		lnw_gpio_set_alt(CS_SELF, LNW_GPIO);
-		err = gpio_request_one(CS_SELF,
-				GPIOF_DIR_OUT | GPIOF_INIT_HIGH, "Radio CS pin");
-		if (err) {
-			printk(KERN_ALERT "ERROR! CS_SELF request error: %d\n", err);
-			lnw_gpio_set_alt(CS_SELF, saved_muxing);
-		}
-		gpio_direction_output(CS_SELF, 1);
-	} else {
-		printk(KERN_ALERT "ERROR! invalid pin CS_SELF\n");
-	}
-
-	/* Waiting Queue */
-	//init_waitqueue_head(&spi_wait_queue);
-	//cmd_queue_head = kmalloc(sizeof(struct cmd_queue), GFP_ATOMIC);
-	//cmd_queue_head->count = 0;
+//
+//	/* Waiting Queue */
+//	//init_waitqueue_head(&spi_wait_queue);
+//	//cmd_queue_head = kmalloc(sizeof(struct cmd_queue), GFP_ATOMIC);
+//	//cmd_queue_head->count = 0;
 
 	return status;
 }
@@ -1487,22 +973,18 @@ static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 {
 	//printk(KERN_ALERT "INTERRRRRRR1111\n");
 
-	struct net_device *dev;
-	dev = (struct net_device *) dev_id;
 
-    //get data from hardware register
-
-	si4463_rx(dev,100,netbuffer);
+	tmp_devs = (struct net_device *) dev_id;
 
 	//cmd_queue_head->count++;
 	struct cmd cmd_;
 	cmd_.type = READFIFO_CMD;
-	u8 str = "test!";
-	cmd_.data = &str;
-	cmd_.len = 6;
+	//using the data field to store the net_devices point;
+	cmd_.data = dev_id;
+	cmd_.len = 4;
 	//insert_back(cmd_queue_head, &cmd_);
-	rbuf_enqueue(&cmd_ringbuffer, &cmd_);
-
+//	rbuf_enqueue(&cmd_ringbuffer, &cmd_);
+	rbuf_insert_readcmd(&cmd_ringbuffer, &cmd_);
 	//wake_up_interruptible(&spi_wait_queue);
 
 	return IRQ_HANDLED;
@@ -1510,51 +992,199 @@ static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 
 static int cmd_queue_handler(void *data){
 	struct cmd *cmd_;
+	u8 tmp[20];
 	while(1){
 		printk(KERN_ALERT "cmd_queue_handler:1\n");
-		//if (wait_event_interruptible(spi_wait_queue, cmd_queue_head->count != 0)) {
-		//	return -ERESTARTSYS;
-		//}
-		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
-		printk(KERN_ALERT "cmd_queue_handler:2, count: %d\n", rbuf_len(&cmd_ringbuffer));
-		//cmd_queue_head->count--;
-		clr_interrupt();
 
-		//cmd_ = get_front(cmd_queue_head);
-		printk(KERN_ALERT "Get CMD: len: %d\n", cmd_->len);
-		printk(KERN_ALERT "Get CMD: data: %s\n", cmd_->data);
+		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
+		switch(cmd_->type){
+		case READFIFO_CMD:
+			printk(KERN_ALERT "+++++++++++++++++++++++++++READFIFO_CMD+++++++++++++++++++++++++++\n");
+			spi_read_fifo(tmp, 19);
+			ppp(tmp, 19);
+		    //get data from hardware register
+			si4463_rx(tmp_devs,19,tmp);
+			clr_interrupt();
+			break;
+		case SEND_CMD:
+			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
+			//enable_tx_interrupt();
+			ppp(cmd_->data, cmd_->len);
+			printk(KERN_ALERT "Before: \n");
+			get_fifo_info();
+			spi_write_fifo(cmd_->data, cmd_->len);
+			printk(KERN_ALERT "Writing: \n");
+			get_fifo_info();
+			tx_start();
+			mdelay(1300);
+			printk(KERN_ALERT "Sending: \n");
+			get_fifo_info();
+			//clr_interrupt();
+
+			break;
+
+		}
 	}
+
+}
+
+int set_pinmux(){
+    struct file *fp[6];
+//    struct file *fp_214;
+    mm_segment_t fs;
+    loff_t pos;
+    static char buf_0[] = "mode0";
+    static char buf_1[] = "mode1";
+//    static char buf_low[] = "low";
+//    static char buf_high[] = "high";
+    static char buf_on[] = "on";
+    static char buf1[10];
+    int i,ret;
+
+    /* disable spi PM */
+    fp[6] = filp_open("/sys/devices/pci0000:00/0000:00:07.1/power/control", O_RDWR, 0);
+    fs =get_fs();
+    set_fs(KERNEL_DS);
+    pos = 0;
+    vfs_write(fp[6], buf_on, 2, &pos);
+    pos = 0;
+    vfs_read(fp[6], buf1, sizeof(buf1), &pos);
+    printk(KERN_ALERT "readPM: %s\n",buf1);
+    filp_close(fp[6],NULL);
+    set_fs(fs);
+
+	ret = gpio_export(109, 1);
+	ret = gpio_export(111, 1);
+	ret = gpio_export(114, 1);
+	ret = gpio_export(115, 1);
+	/* TRI_STATE_ALL */
+//	ret = gpio_export(214, 1);
+//	fp_214 = filp_open("/sys/class/gpio/gpio214/direction", O_RDONLY, 0);
+//    fs =get_fs();
+//    set_fs(KERNEL_DS);
+//    pos = 0;
+//	vfs_write(fp_214, buf_low, sizeof(buf_low), &pos);
+//	filp_close(fp_214,NULL);
+//    set_fs(fs);
+
+	/* Set other gpio */
+	ret = gpio_request_array(pin_mux, pin_mux_num);
+
+    fp[0] = filp_open("/sys/kernel/debug/gpio_debug/gpio109/current_pinmux", O_RDWR, 0);
+    fp[1] = filp_open("/sys/kernel/debug/gpio_debug/gpio111/current_pinmux", O_RDWR, 0);
+    fp[2] = filp_open("/sys/kernel/debug/gpio_debug/gpio114/current_pinmux", O_RDWR, 0);
+    fp[3] = filp_open("/sys/kernel/debug/gpio_debug/gpio115/current_pinmux", O_RDWR, 0);
+
+    fp[5] = filp_open("/sys/kernel/debug/gpio_debug/gpio182/current_pinmux", O_RDWR, 0);
+
+
+
+//    if (IS_ERR(fp)){
+//        printk("open file error/n");
+//        return -1;
+//    }
+    fs =get_fs();
+    set_fs(KERNEL_DS);
+
+    pos = 0;
+    for(i = 0; i < 4; i++) {
+		vfs_write(fp[i], buf_1, sizeof(buf_1), &pos);
+		pos = 0;
+		vfs_read(fp[i], buf1, sizeof(buf1), &pos);
+		printk(KERN_ALERT "read: %s\n",buf1);
+		filp_close(fp[i],NULL);
+    }
+    pos = 0;
+    vfs_write(fp[5], buf_0, sizeof(buf_0), &pos);
+    filp_close(fp[5],NULL);
+    set_fs(fs);
+
+
+	gpio_direction_output(214, 1);
+
+	return 0;
 
 }
 
 int si4463_open(struct net_device *dev)
 {
 	int ret=0;
+	int saved_muxing = 0;
+	int err,tmp;
+
+
 	printk(KERN_ALERT "si4463_o2pen\n");
 
+	set_pinmux();
 
 
-    //getCTS();
+
+	/*
+	 *
+	 */
+	//gpio_direction_output(SCKpin, 0);
+	//gpio_direction_output(MOSIpin, 0);
+	//gpio_direction_input(MISOpin);
+
+	/* spi setup :
+	 * 		SPI_MODE_0
+	 * 		MSBFIRST
+	 * 		CS active low
+	 * 		IRQ??????
+	 */
+
+//	spin_lock_irq(&spidev->spi_lock);
+//	spin_unlock_irq(&spidev->spi_lock);
+
+	if (spi_save == NULL)
+		return -ESHUTDOWN;
+
+	tmp = ~SPI_MODE_MASK;
+
+	printk(KERN_ALERT "init: tmp= %x\n", tmp);
+	tmp |= SPI_MODE_0;
+	//tmp |= SPI_NO_CS;
+	//tmp |= SPI_CS_HIGH;
+	//tmp |= SPI_READY;
+	printk(KERN_ALERT "midd: tmp= %x\n", tmp);
+	tmp |= spi_save->mode & ~SPI_MODE_MASK;
+	printk(KERN_ALERT "after: tmp= %x\n", tmp);
+	spi_save->mode = (u8)tmp;
+	spi_save->bits_per_word = BITS_PER_WORD;
+	spi_save->max_speed_hz = SPI_SPEED;
+
+	ret = spi_setup(spi_save);
+	if (ret < 0)
+		printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
+	else
+		printk(KERN_ALERT "spi_setup succeed\n");
+
+	/* Waiting Queue */
+	//init_waitqueue_head(&spi_wait_queue);
+	//cmd_queue_head = kmalloc(sizeof(struct cmd_queue), GFP_ATOMIC);
+	//cmd_queue_head->count = 0;
+
 
 	netif_start_queue(dev);
 
-	gpio_set_value(RADIO_SDN, 0);//enable
-	mdelay(10);
+//	gpio_set_value(RADIO_SDN, 0);//enable
+//	mdelay(10);
 	//getCTS();
 	reset();
+
 	si4463_init();
 	fifo_reset();
 
 	/*RX*/
-	printk(KERN_ALERT "RXXXXXXXXXXX\n");
+	//printk(KERN_ALERT "RXXXXXXXXXXX\n");
 	enable_rx_interrupt();
-	printk(KERN_ALERT "enable_rx_interrupt\n");
+	//printk(KERN_ALERT "enable_rx_interrupt\n");
 	clr_interrupt();
-	printk(KERN_ALERT "clr_interrupt\n");
+	//printk(KERN_ALERT "clr_interrupt\n");
 	rx_start();
-	printk(KERN_ALERT "rx_start\n");
+	//printk(KERN_ALERT "rx_start\n");
 
-	mdelay(2000);
+	mdelay(1000);
 
 	/* IRQ */
 	int irq = gpio_to_irq(NIRQ);
@@ -1578,6 +1208,24 @@ int si4463_open(struct net_device *dev)
 		printk("create ktrhead ok!\n");
 	}
 
+/*
+	int tmp = 5;
+	//	u8 str[4] = {0xaa, 0xbb, 0xcc, 0xdd};
+		printk(KERN_ALERT "Before: \n");
+		get_fifo_info();
+		mdelay(1000);
+		for(;tmp>0; tmp--){
+			mdelay(1000);
+
+			spi_write_fifo(tx_ph_data, 19);
+			printk(KERN_ALERT "Writing: \n");
+			get_fifo_info();
+			tx_start();
+			printk(KERN_ALERT "Sending: \n");
+			get_fifo_info();
+		}
+*/
+
     return ret;
 }
 
@@ -1586,6 +1234,12 @@ int si4463_release(struct net_device *dev)
 	printk("si4463_release\n");
     netif_stop_queue(dev);
     gpio_set_value(RADIO_SDN, 1);//disable
+    free_irq(gpio_to_irq(NIRQ),si4463_devs);
+    gpio_free_array(pin_mux, pin_mux_num);
+	gpio_unexport(109);
+	gpio_unexport(111);
+	gpio_unexport(114);
+	gpio_unexport(115);
     return 0;
 }
 
@@ -1613,20 +1267,12 @@ void si4463_hw_tx(char *buf, int len, struct net_device *dev)
     /* remember to free the sk_buffer allocated in upper layer. */
     dev_kfree_skb(priv->skb);
 
-/*
-	enable_tx_interrupt();
-	int tmp = 5;
-//	u8 str[4] = {0xaa, 0xbb, 0xcc, 0xdd};
-	const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
+	struct cmd cmd_;
+	cmd_.type = SEND_CMD;
+	cmd_.data = tx_ph_data;
+	cmd_.len = 19;
+	rbuf_enqueue(&cmd_ringbuffer, &cmd_);
 
-	mdelay(1000);
-	for(;tmp>0; tmp--){
-		mdelay(1000);
-
-		spi_write_fifo(tx_ph_data, 19);
-		tx_start();
-	}
-	*/
 }
 
 /*
@@ -1636,13 +1282,17 @@ void si4463_hw_tx(char *buf, int len, struct net_device *dev)
 
 int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 {
-	printk("si4463_tx\n");
+	printk(KERN_ALERT "si4463_tx\n");
     int len;
-    char *data;
+    u8 *data;
     struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
 
     len = skb->len < ETH_ZLEN ? ETH_ZLEN : skb->len;
+
+
     data = skb->data;
+
+
     /* stamp the time stamp */
     dev->trans_start = jiffies;
 
@@ -1809,7 +1459,6 @@ static void __exit spidev_exit(void)
 }
 module_exit(spidev_exit);
 
-#endif
 
 MODULE_AUTHOR("Andrea Paterniani, <a.paterniani@swapp-eng.it>");
 MODULE_DESCRIPTION("User mode SPI device interface");

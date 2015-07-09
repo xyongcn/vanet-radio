@@ -8,12 +8,13 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 
-#define RBUF_MAX 10
+#define RBUF_MAX 40
 #define MAXSIZE_PER_CMD 20
 
 struct cmd {
 #define READFIFO_CMD	1
-#define OTHER_CMD		2
+#define SEND_CMD		2
+#define OTHER_CMD		55
 	int type;
 	u8 * data;
 	int len;
@@ -43,6 +44,8 @@ void rbuf_destroy(rbuf_t *rb);
 
 /* 压入数据 */
 int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_);
+
+int rbuf_insert_readcmd(rbuf_t *rb, struct cmd *cmd_);
 
 /* 取出数据 */
 struct cmd * rbuf_dequeue(rbuf_t *rb);

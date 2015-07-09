@@ -42,23 +42,51 @@ void copy_cmd(struct cmd *dest, struct cmd *src){
 /* 压入数据 */
 int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_)
 {
-	//printk(KERN_ALERT "rbuf_enqueue\n");
+	printk(KERN_ALERT "rbuf_enqueue\n");
 	int ret = 0;
-	spin_lock(&rb->lock);
+	//ppp(cmd_->data, cmd_->len);
 
 	if (rbuf_full(rb))
 	{
-		spin_unlock(&rb->lock);
 		printk(KERN_ALERT "ringbuffer is FULL, enlarge the RBUF_MAX\n");
 		wait_event_interruptible(rb->wait_isfull, !rbuf_full(rb));
-		spin_lock(&rb->lock);
 	}
 
-
+	spin_lock(&rb->lock);
 	copy_cmd(&(rb->data[rb->next_in++]), cmd_);
 	rb->size++;
 	rb->next_in %= rb->capacity;
-out:
+
+	//ppp(rb->data[rb->next_in-1].data, rb->data[rb->next_in-1].data)
+
+	spin_unlock(&rb->lock);
+	wake_up_interruptible(&rb->wait_isempty);
+	return ret;
+}
+
+/* 压入数据
+ * read cmd must be dealed first!
+ * */
+int rbuf_insert_readcmd(rbuf_t *rb, struct cmd *cmd_)
+{
+	printk(KERN_ALERT "rbuf_insert_before_readcmd\n");
+	int ret = 0;
+	int tmp;
+	//ppp(cmd_->data, cmd_->len);
+
+	if (rbuf_full(rb))
+	{
+		printk(KERN_ALERT "ringbuffer is FULL, enlarge the RBUF_MAX\n");
+		wait_event_interruptible(rb->wait_isfull, !rbuf_full(rb));
+	}
+
+	spin_lock(&rb->lock);
+	rb->next_out = (rb->next_out - 1) % rb->capacity;
+	copy_cmd(&(rb->data[rb->next_out]), cmd_);
+	rb->size++;
+
+	//ppp(rb->data[rb->next_in-1].data, rb->data[rb->next_in-1].data)
+
 	spin_unlock(&rb->lock);
 	wake_up_interruptible(&rb->wait_isempty);
 	return ret;
@@ -67,25 +95,21 @@ out:
 /* 取出数据 */
 struct cmd* rbuf_dequeue(rbuf_t *rb)
 {
-	//printk(KERN_ALERT "rbuf_dequeue\n");
+	printk(KERN_ALERT "rbuf_dequeue\n");
 	struct cmd *cmd_ = NULL;
 	int ret = 0;
 
-	spin_lock(&rb->lock);
-
 	if (rbuf_empty(rb))
 	{
-		spin_unlock(&rb->lock);
 		//printk(KERN_ALERT "ringbuffer is EMPTY!\n");
 		wait_event_interruptible(rb->wait_isempty, !rbuf_empty(rb));
-		spin_lock(&rb->lock);
 	}
 
-
+	spin_lock(&rb->lock);
 	cmd_ = &rb->data[rb->next_out++];
 	rb->size--;
 	rb->next_out %= rb->capacity;
-out:
+
 	spin_unlock(&rb->lock);
 	wake_up_interruptible(&rb->wait_isfull);
 	//return ret;

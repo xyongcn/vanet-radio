@@ -41,12 +41,14 @@ struct cmd_queue {
 };
 
 
-#define SCKpin  		//13   // SCK
-#define MOSIpin 		//11   // MOSI
-#define MISOpin 		//12   // MISO
+#define SCKpin  		109//IO13   // SCK
+#define MOSIpin 		115//IO11   // MOSI
+#define MISOpin 		114//IO12   // MISO
 #define CS_SELF   		49	//IO8 //10    // SS
 #define RADIO_SDN   	48	//IO7 //182
 #define NIRQ 			182 //IO6  //interrpt
+
+
 
 struct ed_device{
 	int magic;
