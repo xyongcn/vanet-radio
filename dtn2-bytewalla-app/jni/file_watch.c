@@ -137,19 +137,7 @@ int main(int argc, char *argv[])
 	}
   
   	//stdout redirect to File
-  	/*char program_log_filename[256];
-  	memset(program_log_filename,'\0',sizeof(program_log_filename));
-  	sprintf(program_log_filename,"%s/dtn2-bytewalla-app.log",program_log_filename);
-	int out=open(program_log_filename, O_CREAT |  O_RDWR);
-  	if(out>0)
-  	{
-  		dup2(out,fileno(stdout));
-  	}
-  	else
-  	{
-  		printf("redirect stdout to file %s failed \n");
-  	}*/
-  	char program_log_filename[128];
+  	/*char program_log_filename[128];
   	memset(program_log_filename,'\0',sizeof(program_log_filename));
   	sprintf(program_log_filename,"%s/dtn2-bytewalla-app.log",program_log);
   	printf("logfile:%s\n",program_log_filename);
@@ -162,7 +150,7 @@ int main(int argc, char *argv[])
   	else
   	{
   		printf("redirect stdout to file %s failed \n");
-  	}
+  	}*/
 
 //watched log dir
 	file_type *f_logdir_type=(file_type *)malloc(sizeof(file_type));
@@ -333,24 +321,64 @@ void * watchFile(void *s)
 					memset(temp_filename,'\0',sizeof(temp_filename));
 					sprintf(send_filename,"%s/%s",file,filename);
 					sprintf(temp_filename,"%s/%s.payload",temp_s->program_log,filename);
-					FILE *send_file=fopen(send_filename,"r");
-					FILE *temp_file=fopen(temp_filename,"w");
+					// FILE *send_file=fopen(send_filename,"r");
+					// FILE *temp_file=fopen(temp_filename,"w");
+					int send_file_fd=open(send_filename,O_RDONLY);
+					int temp_file_fd=open(temp_filename,O_WRONLY|O_CREAT|O_TRUNC,0766);
 
-					if(send_file==NULL || temp_file==NULL)
+					// if(send_file==NULL || temp_file==NULL)
+					// 	break;
+					if(send_file_fd==-1 || temp_file_fd==-1)
+					{
+						fprintf(stdout,"open shared file %s failed or create temp payload %s failed\n",send_filename,temp_filename);
 						break;
+					}
 
 					char buff[256];
 					memset(buff,'\0',sizeof(buff));
-					buff[0]=strlen(filename);
+					//write the filename length and filename
+					/*buff[0]=strlen(filename);
 					strcpy(buff+1,filename);
-					fputs(buff,temp_file);
-					while(fgets(buff,256,send_file)!=NULL)
+					fputs(buff,temp_file);*/
+					strcpy(buff,filename);
+					write(temp_file_fd,buff,sizeof(buff));
+					memset(buff,'\0',sizeof(buff));
+
+					//read payload file and write to the temp payload
+					/*while(!feof(send_file))
 					{
+						fgets(buff,sizeof(buff),send_file);
 						fputs(buff,temp_file);
 					}
 
 					fclose(send_file);
-					fclose(temp_file);
+					fclose(temp_file);*/
+					int readnum;
+					while((readnum=read(send_file_fd,buff,sizeof(buff)))>0)
+					{
+						if(write(temp_file_fd,buff,readnum)<readnum)
+						{
+							// close(temp_file_fd);
+							// close(send_file_fd);
+							// fprintf(stdout,"write into temp payload %s failed\n",temp_filename);
+							readnum=-1;
+							break;
+						}
+					}
+
+					close(temp_file_fd);
+					close(send_file_fd);
+
+					if(readnum==-1)
+					{
+						fprintf(stdout,"write into temp payload %s failed\n",temp_filename);
+						break;
+					}
+					else
+					{
+						fprintf(stdout,"create temp payload file %s \n",temp_filename);
+					}
+
 
 					if(temp_s->dtn_type==DTN2)
 					{
@@ -399,30 +427,44 @@ void * watchFile(void *s)
 					else
 					{
 						fprintf(stdout,"wrong dtn_type:%d",temp_s->dtn_type);
+						break;
 					}
 
-					FILE *payload_file=fopen(payload_filename,"r");
+					/*FILE *payload_file=fopen(payload_filename,"r");
 
 					if(payload_file==NULL)
 					{
 						fprintf(stdout,"payload %s do not exsists\n",payload_filename);
 						break;
+					}*/
+					int payload_file_fd=open(payload_filename,O_RDONLY);
+					if(payload_file_fd==-1)
+					{
+						fprintf(stdout,"payload %s do not exsists\n",payload_filename);
+						break;
+					}
+					else
+					{
+						fprintf(stdout,"open the payload file %s\n",payload_filename);
 					}
 
 					char buff[256];
 					memset(buff,'\0',sizeof(buff));
-					if(fgets(buff,256,payload_file)==NULL)
+					/*if(fgets(buff,256,payload_file)==NULL)
 					{
-						// fprintf(stdout,"payload %s do not exsists\n",payload_filename);
 						fclose(payload_file);
 						break;
 					}
 					int num=(int)buff[0]+1;//the first char is the num of filename
-					buff[0]='/';
+					buff[0]='/';*/
+					read(payload_file_fd,buff,sizeof(buff));
+					fprintf(stdout,"the shared file name:%s\n",buff);
 
 					//get the received file's name ,and put into the received queue
-					char *add_queue_file_name=(char *)malloc(sizeof(char)*num);
-					strncpy(add_queue_file_name,buff+1,num-1);
+					/*char *add_queue_file_name=(char *)malloc(sizeof(char)*num);
+					strncpy(add_queue_file_name,buff+1,num-1);*/
+					char *add_queue_file_name=(char *)malloc(sizeof(buff));
+					strcpy(add_queue_file_name,buff);
 					queue_node *node=(queue_node*)malloc(sizeof(queue_node));
 					node->content=add_queue_file_name;
 					if(queue_add(received_file_queue,node)==0)
@@ -436,23 +478,54 @@ void * watchFile(void *s)
 
 					char target_filename[256];
 					memset(target_filename,'\0',sizeof(target_filename));
-					strcpy(target_filename,temp_s->dtn_shared_dir);
+					/*strcpy(target_filename,temp_s->dtn_shared_dir);
 					int start=strlen(temp_s->dtn_shared_dir);
 					strncpy(target_filename+start,buff,num);
 
 					FILE *target_file=fopen(target_filename,"w");
 
 					if(target_file==NULL)
-						break;
+						break;*/
 
-					fputs(buff+num,target_file);
+					sprintf(target_filename,"%s/%s",temp_s->dtn_shared_dir,buff);
+					int target_file_fd=open(target_filename,O_WRONLY|O_CREAT|O_TRUNC,0766);
+					if(target_file_fd==-1)
+					{
+						fprintf(stdout,"ceated received shared file %s failed\n",target_filename);
+						break;
+					}
+
+					/*fputs(buff+num,target_file);
 					while(fgets(buff,256,payload_file)!=NULL)
 					{
 						fputs(buff,target_file);
 					}
 
 					fclose(payload_file);
-					fclose(target_file);
+					fclose(target_file);*/
+
+					int read_num;
+					while((read_num=read(payload_file_fd,buff,sizeof(buff)))>0)
+					{
+						if((write(target_file_fd,buff,read_num))<read_num)
+						{
+							read_num=-1;
+							break;
+						}
+					}
+
+					close(payload_file_fd);
+					close(target_file_fd);
+
+					if(read_num==-1)
+					{
+						fprintf(stdout,"generate shared file %s form payload %s failed\n",target_filename,payload_filename);
+						break;
+					}
+					else
+					{
+						fprintf(stdout,"generate shared file %s successfully\n",target_filename);
+					}
 				}
 
 			
