@@ -20,3 +20,10 @@ typedef struct queueNode
 queue_head *queue_init();
 int queue_add(queue_head *q,queue_node *node);
 queue_node *queue_get(queue_head *q);
+
+//if queue is empty ,then return 1
+int queue_empty(queue_head *q);
+
+
+//file_queue function
+int file_queue_find_and_remove(queue_head *q,char *target_chars);

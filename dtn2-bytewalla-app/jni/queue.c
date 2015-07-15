@@ -63,3 +63,12 @@ queue_node *queue_get(queue_head *q)
 	}
 
 }
+
+//if queue is empty ,then return 1
+int queue_empty(queue_head *q)
+{
+	if(q->first==NULL && q->end==NULL)
+		return 1;
+	else
+		return 0;
+}

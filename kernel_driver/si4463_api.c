@@ -15,7 +15,7 @@ extern struct spidev_data spidev_global;
 extern wait_queue_head_t spi_wait_queue;
 //extern struct task_struct *cmd_handler_tsk;
 
-const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
+//const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
 //const unsigned char tx_ph_data[14] = {0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11};
 
 int payload_length = 19;
@@ -57,34 +57,12 @@ void getCTS(void) {
  }
 
  }*/
-/*
-u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * tx_buff,
-		u8 * rx_buff) {
-	int k,err;
-	printk(KERN_ALERT "Send CMD! \n");
-
-	ppp(tx_buff, byteCountTx);
-	err = spi_write(spi_save, (void*) tx_buff, byteCountTx);
-	if(err != 0){
-		printk(KERN_ALERT "SendCmdReceiveAnswer: spi_write return errno: %d ", err);
-	}
-	getCTS();
-	err = spi_read(spi_save, (void*) rx_buff, byteCountRx);
-	if(err != 0){
-		printk(KERN_ALERT "SendCmdReceiveAnswer: spi_read return errno: %d ", err);
-	}
-
-	printk(KERN_ALERT "RECV CMD! \n");
-	for (k=0; k<byteCountRx; k++){
-		printk(KERN_ALERT "%x ", rx_buff[k]);
-	}
-	printk(KERN_ALERT "\n");
-
-	return rx_buff;
-}*/
 
 u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 		u8 * out_buff) {
+	/* TEST */
+//	if (byteCountTx == 1)
+//		byteCountTx++;
 
 	char answer, i, j, k;
 //发送命令
@@ -97,11 +75,12 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	}
 	gpio_set_value(CS_SELF, 1);
 //	ndelay(100);
+	ndelay(10);
 	gpio_set_value(CS_SELF, 0);
 
 	u8 reply = 0x00;
 	u8 request = 0x44;
-	j = 10;
+	j = 5;
 	while (reply != 0xFF) {
 		request = 0x44;
 
@@ -111,18 +90,18 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 			printk(KERN_ALERT "getCTS: %x\n", reply);
 			gpio_set_value(CS_SELF, 1);
 		//	spidev_sync_transfer(&spidev_global, in_buff, out_buff, byteCountTx);
-			ndelay(100);
+			ndelay(10);
 			gpio_set_value(CS_SELF, 0);
 		}
 		if (j-- < 0)
 			break;
 	}
-	//printk(KERN_ALERT "RECV CMD! \n");
+	printk(KERN_ALERT "RECV CMD! \n");
 	for (k=0; k<byteCountRx; k++){
 		spidev_global.buffer = &(out_buff[k]);
 		spidev_sync_read(&spidev_global, 1);
 
-		//printk(KERN_ALERT "%x ", *(spidev_global.buffer));
+		printk(KERN_ALERT "%x ", *(spidev_global.buffer));
 	}
 	gpio_set_value(CS_SELF, 1);
 	return out_buff;
@@ -152,10 +131,10 @@ u8 * spi_write_cmd(int byteCountTx, u8 * in_buff) {
 
 
 void reset(void) {
-/*	gpio_set_value(RADIO_SDN, 1);
-	ndelay(1000);
+	gpio_set_value(RADIO_SDN, 1);
+	mdelay(10);
 	gpio_set_value(RADIO_SDN, 0);
-	mdelay(6);*/
+	mdelay(10);
 	u8 buff[10];
 //POWER_UP
 /*
@@ -177,17 +156,14 @@ void reset(void) {
 */
 //const unsigned char init_command[] = {0x02, 0x01, 0x01, x3, x2, x1, x0};// no patch, boot main app. img, FREQ_VCXO, return 1 byte
 	u8 init_command[] = { RF_POWER_UP };
-
-
 	SendCmdReceiveAnswer(7, 1, init_command, buff);
 	//ppp(buff, 1);
-
+	SendCmdReceiveAnswer(7, 1, init_command, buff);
 
 
 	u8 PART_INFO_command[] = { 0x01 }; // Part Info
 	SendCmdReceiveAnswer(1, 9, PART_INFO_command, buff);
 	//ppp(buff, 9);
-
 
 	u8 get_int_status_command[] = { 0x20, 0x00, 0x00, 0x00 }; //  Clear all pending interrupts and get the interrupt status back
 	SendCmdReceiveAnswer(4, 9, get_int_status_command, buff);
@@ -468,7 +444,10 @@ void tx_start(void)					// 开始发射
 
 	p[0] = START_TX ;
 	p[1] = freq_channel ;  			// 通道0
-	p[2] = 0x50;
+
+//	p[2] = 0x50;//TX_TUNE
+	p[2] = 0x80;//RX
+
 	p[3] = 0;
 	p[4] = 0;
 	spi_write_cmd(5, p);

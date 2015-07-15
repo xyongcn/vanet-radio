@@ -20,7 +20,7 @@ int file_queue_find_and_remove(queue_head *q,char *target_chars)
 				//remove node
 				temp->prior->next=temp->next;
 				temp->next->prior=temp->prior;
-				// free(temp);
+				free(temp);
 				return 1;
 			}
 		}
