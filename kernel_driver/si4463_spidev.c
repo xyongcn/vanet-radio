@@ -150,10 +150,43 @@ struct task_struct *cmd_handler_tsk;
 /* FOR DEBUG */
 static u8 tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
 
-/* PIN MUX */
-#define pin_mux_num  26
+#define pin_mux_num  25
+const char gpio_pin[pin_mux_num][4] = {
+		/*"111 ",*/
+		"115 ",
+		"114 ",
+		"109 ",
+		"214 ",
+
+		"263 ",
+		"240 ",
+		"262 ",
+		"241 ",
+		"242 ",
+		"243 ",
+		"258 ",
+		"259 ",
+		"260 ",
+		"261 ",
+		"226 ",
+		"227 ",
+		"228 ",
+		"229 ",
+
+		/*IO7 and IO8*/
+		"256 ",
+		"224 ",
+		"255 ",
+		"223 ",
+
+		/*IO6*/
+		"254 ",
+		"222 ",
+		"182 "
+};
+//#define pin_mux_num  26
 const struct gpio pin_mux[pin_mux_num] = {
-		{111, NULL, NULL},
+		/*{111, NULL, NULL},*/
 		{115, NULL, NULL},
 		{114, NULL, NULL},
 		{109, NULL, NULL},
@@ -881,6 +914,11 @@ static int spidev_probe(struct spi_device *spi)
 		printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
 	else
 		printk(KERN_ALERT "spi_setup succeed\n");
+
+	/* PIN MUX */
+	set_pinmux();
+//	mdelay(1000);
+//	set_pinmux();
 //
 //	/* Waiting Queue */
 //	//init_waitqueue_head(&spi_wait_queue);
@@ -992,7 +1030,7 @@ static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 
 static int cmd_queue_handler(void *data){
 	struct cmd *cmd_;
-	u8 tmp[20];
+	u8 tmp[64];
 	while(1){
 		printk(KERN_ALERT "cmd_queue_handler:1\n");
 
@@ -1000,10 +1038,10 @@ static int cmd_queue_handler(void *data){
 		switch(cmd_->type){
 		case READFIFO_CMD:
 			printk(KERN_ALERT "+++++++++++++++++++++++++++READFIFO_CMD+++++++++++++++++++++++++++\n");
-			spi_read_fifo(tmp, 19);
-			ppp(tmp, 19);
+			spi_read_fifo(tmp, 64);
+			ppp(tmp, 64);
 		    //get data from hardware register
-			si4463_rx(tmp_devs,19,tmp);
+			si4463_rx(tmp_devs,64,tmp);
 			clr_interrupt();
 			break;
 		case SEND_CMD:
@@ -1028,79 +1066,251 @@ static int cmd_queue_handler(void *data){
 
 }
 
-int set_pinmux(){
-    struct file *fp[6];
-//    struct file *fp_214;
+static void write2file(struct file *fp, const char *write_str, int len) {
+    static char buf1[10];
     mm_segment_t fs;
     loff_t pos;
-    static char buf_0[] = "mode0";
-    static char buf_1[] = "mode1";
-//    static char buf_low[] = "low";
-//    static char buf_high[] = "high";
-    static char buf_on[] = "on";
-    static char buf1[10];
-    int i,ret;
 
-    /* disable spi PM */
-    fp[6] = filp_open("/sys/devices/pci0000:00/0000:00:07.1/power/control", O_RDWR, 0);
-    fs =get_fs();
+    if( IS_ERR(fp)) {
+    	printk(KERN_ALERT "fp is NULL!!\n");
+    	return;
+    }
+    if(write_str == NULL) {
+    	printk(KERN_ALERT "write_str is NULL!!\n");
+    	return;
+    }
+//    printk(KERN_ALERT "Len: %d, write_str is %s\n", len, write_str);
+	fs =get_fs();
     set_fs(KERNEL_DS);
     pos = 0;
-    vfs_write(fp[6], buf_on, 2, &pos);
-    pos = 0;
-    vfs_read(fp[6], buf1, sizeof(buf1), &pos);
-    printk(KERN_ALERT "readPM: %s\n",buf1);
-    filp_close(fp[6],NULL);
-    set_fs(fs);
+    vfs_write(fp, write_str, len, &pos);
+//    pos = 0;
+//    vfs_read(fp, buf1, sizeof(buf1), &pos);
+//    printk(KERN_ALERT "%s\n",buf1);
 
+    set_fs(fs);
+}
+int set_pinmux_test(){
+	/* PIN MUX */
+	#define pin_mux_num  26
+	const struct gpio pin_mux[pin_mux_num] = {
+			{111, NULL, NULL},
+			{115, NULL, NULL},
+			{114, NULL, NULL},
+			{109, NULL, NULL},
+			{214, GPIOF_INIT_LOW, NULL},
+
+			{263, GPIOF_INIT_HIGH, NULL},
+			{240, GPIOF_INIT_HIGH, NULL},
+			{262, GPIOF_INIT_HIGH, NULL},
+			{241, GPIOF_INIT_HIGH, NULL},
+			{242, GPIOF_INIT_HIGH, NULL},
+			{243, GPIOF_INIT_HIGH, NULL},
+			{258, GPIOF_INIT_HIGH, NULL},
+			{259, GPIOF_INIT_HIGH, NULL},
+			{260, GPIOF_INIT_LOW, NULL},
+			{261, GPIOF_INIT_HIGH, NULL},
+			{226, GPIOF_DIR_IN, NULL},
+			{227, GPIOF_DIR_IN, NULL},
+			{228, GPIOF_DIR_IN, NULL},
+			{229, GPIOF_DIR_IN, NULL},
+
+			/*IO7 and IO8*/
+			{256, GPIOF_INIT_HIGH, NULL},
+			{224, GPIOF_DIR_IN, NULL},
+			{255, GPIOF_INIT_HIGH, NULL},
+			{223, GPIOF_DIR_IN, NULL},
+
+			/*IO6*/
+			{254, GPIOF_INIT_LOW, NULL},
+			{222, GPIOF_DIR_IN, NULL},
+			{182, GPIOF_DIR_IN, NULL}
+	};
+
+}
+int set_pinmux(){
+
+
+    struct file *fp;
+//    struct file *fp_214;
+
+    const char s_mode0[] = "mode0";
+    const char s_mode1[] = "mode1";
+    const char s_low[] = "low";
+    const char s_high[] = "high";
+    const char s_in[] = "in";
+    const char s_on[] = "on";
+
+    int i,ret;
+
+    ret = gpio_request_array(pin_mux, pin_mux_num);
+    printk(KERN_ALERT "gpio_request_array return %d\n", ret);
+//
 	ret = gpio_export(109, 1);
 	ret = gpio_export(111, 1);
 	ret = gpio_export(114, 1);
 	ret = gpio_export(115, 1);
+	ret = gpio_export(263, 1);
+	ret = gpio_export(240, 1);
+	ret = gpio_export(262, 1);
+	ret = gpio_export(241, 1);
+	ret = gpio_export(242, 1);
+	ret = gpio_export(243, 1);
+	ret = gpio_export(258, 1);
+	ret = gpio_export(259, 1);
+	ret = gpio_export(260, 1);
+	ret = gpio_export(261, 1);
+	ret = gpio_export(226, 1);
+	ret = gpio_export(227, 1);
+	ret = gpio_export(228, 1);
+	ret = gpio_export(229, 1);
+	ret = gpio_export(214, 1);
+	/* IO7,8 */
+	ret = gpio_export(256, 1);
+	ret = gpio_export(224, 1);
+	ret = gpio_export(255, 1);
+	ret = gpio_export(223, 1);
+	/* IO6 */
+	ret = gpio_export(182, 1);
+	ret = gpio_export(254, 1);
+	ret = gpio_export(222, 1);
+
+    /* gpio export */
+//    fp = filp_open("/sys/class/gpio/export", O_WRONLY, 0);
+//    for (i=0; i<pin_mux_num; i++) {
+////    	printk(KERN_ALERT "gpio_pin[%d] is %s\n", i, gpio_pin[i]);
+//    	write2file(fp, gpio_pin[i], sizeof(gpio_pin[i]));
+//    }
+
+    /* disable spi PM */
+    fp = filp_open("/sys/devices/pci0000:00/0000:00:07.1/power/control", O_RDWR, 0);
+    write2file(fp, s_on, 2);
 	/* TRI_STATE_ALL */
-//	ret = gpio_export(214, 1);
-//	fp_214 = filp_open("/sys/class/gpio/gpio214/direction", O_RDONLY, 0);
+    fp = filp_open("/sys/class/gpio/gpio214/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+	/* IO7,8 */
+    fp = filp_open("/sys/class/gpio/gpio256/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio255/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio223/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio224/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    /* IO6 */
+    fp = filp_open("/sys/kernel/debug/gpio_debug/gpio182/current_pinmux", O_RDWR, 0);
+    write2file(fp, s_mode0, 5);
+    fp = filp_open("/sys/class/gpio/gpio254/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+    fp = filp_open("/sys/class/gpio/gpio222/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio182/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    /* SPI */
+    fp = filp_open("/sys/class/gpio/gpio263/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio240/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio262/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio241/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio242/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio243/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio258/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio259/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio260/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+    fp = filp_open("/sys/class/gpio/gpio261/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio226/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio227/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio228/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio229/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/kernel/debug/gpio_debug/gpio109/current_pinmux", O_RDWR, 0);
+    write2file(fp, s_mode1, 5);
+    fp = filp_open("/sys/kernel/debug/gpio_debug/gpio111/current_pinmux", O_RDWR, 0);
+    write2file(fp, s_mode1, 5);
+    fp = filp_open("/sys/kernel/debug/gpio_debug/gpio114/current_pinmux", O_RDWR, 0);
+    write2file(fp, s_mode1, 5);
+    fp = filp_open("/sys/kernel/debug/gpio_debug/gpio115/current_pinmux", O_RDWR, 0);
+    write2file(fp, s_mode1, 5);
+	/* TRI_STATE_ALL */
+    fp = filp_open("/sys/class/gpio/gpio214/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+
+    filp_close(fp,NULL);
+
+//
+//    /* disable spi PM */
+//    fp[6] = filp_open("/sys/devices/pci0000:00/0000:00:07.1/power/control", O_RDWR, 0);
 //    fs =get_fs();
 //    set_fs(KERNEL_DS);
 //    pos = 0;
-//	vfs_write(fp_214, buf_low, sizeof(buf_low), &pos);
-//	filp_close(fp_214,NULL);
+//    vfs_write(fp[6], s_on, 2, &pos);
+//    pos = 0;
+//    vfs_read(fp[6], buf1, sizeof(buf1), &pos);
+//    printk(KERN_ALERT "readPM: %s\n",buf1);
+//    filp_close(fp[6],NULL);
 //    set_fs(fs);
-
-	/* Set other gpio */
-	ret = gpio_request_array(pin_mux, pin_mux_num);
-
-    fp[0] = filp_open("/sys/kernel/debug/gpio_debug/gpio109/current_pinmux", O_RDWR, 0);
-    fp[1] = filp_open("/sys/kernel/debug/gpio_debug/gpio111/current_pinmux", O_RDWR, 0);
-    fp[2] = filp_open("/sys/kernel/debug/gpio_debug/gpio114/current_pinmux", O_RDWR, 0);
-    fp[3] = filp_open("/sys/kernel/debug/gpio_debug/gpio115/current_pinmux", O_RDWR, 0);
-
-    fp[5] = filp_open("/sys/kernel/debug/gpio_debug/gpio182/current_pinmux", O_RDWR, 0);
-
-
-
-//    if (IS_ERR(fp)){
-//        printk("open file error/n");
-//        return -1;
+//
+//	ret = gpio_export(109, 1);
+//	ret = gpio_export(111, 1);
+//	ret = gpio_export(114, 1);
+//	ret = gpio_export(115, 1);
+//	/* TRI_STATE_ALL */
+////	ret = gpio_export(214, 1);
+////	fp_214 = filp_open("/sys/class/gpio/gpio214/direction", O_RDONLY, 0);
+////    fs =get_fs();
+////    set_fs(KERNEL_DS);
+////    pos = 0;
+////	vfs_write(fp_214, buf_low, sizeof(buf_low), &pos);
+////	filp_close(fp_214,NULL);
+////    set_fs(fs);
+//
+//	/* Set other gpio */
+//	ret = gpio_request_array(pin_mux, pin_mux_num);
+//
+//    fp[0] = filp_open("/sys/kernel/debug/gpio_debug/gpio109/current_pinmux", O_RDWR, 0);
+//    fp[1] = filp_open("/sys/kernel/debug/gpio_debug/gpio111/current_pinmux", O_RDWR, 0);
+//    fp[2] = filp_open("/sys/kernel/debug/gpio_debug/gpio114/current_pinmux", O_RDWR, 0);
+//    fp[3] = filp_open("/sys/kernel/debug/gpio_debug/gpio115/current_pinmux", O_RDWR, 0);
+//
+//    fp[5] = filp_open("/sys/kernel/debug/gpio_debug/gpio182/current_pinmux", O_RDWR, 0);
+//
+//
+//
+////    if (IS_ERR(fp)){
+////        printk("open file error/n");
+////        return -1;
+////    }
+//    fs =get_fs();
+//    set_fs(KERNEL_DS);
+//
+//    pos = 0;
+//    for(i = 0; i < 4; i++) {
+//		vfs_write(fp[i], s_mode1, sizeof(s_mode1), &pos);
+//		pos = 0;
+//		vfs_read(fp[i], buf1, sizeof(buf1), &pos);
+//		printk(KERN_ALERT "read: %s\n",buf1);
+//		filp_close(fp[i],NULL);
 //    }
-    fs =get_fs();
-    set_fs(KERNEL_DS);
+//    pos = 0;
+//    vfs_write(fp[5], s_mode0, sizeof(s_mode0), &pos);
+//    filp_close(fp[5],NULL);
+//    set_fs(fs);
+//
+//
+//	gpio_direction_output(214, 1);
 
-    pos = 0;
-    for(i = 0; i < 4; i++) {
-		vfs_write(fp[i], buf_1, sizeof(buf_1), &pos);
-		pos = 0;
-		vfs_read(fp[i], buf1, sizeof(buf1), &pos);
-		printk(KERN_ALERT "read: %s\n",buf1);
-		filp_close(fp[i],NULL);
-    }
-    pos = 0;
-    vfs_write(fp[5], buf_0, sizeof(buf_0), &pos);
-    filp_close(fp[5],NULL);
-    set_fs(fs);
-
-
-	gpio_direction_output(214, 1);
 
 	return 0;
 
@@ -1115,7 +1325,7 @@ int si4463_open(struct net_device *dev)
 
 	printk(KERN_ALERT "si4463_o2pen\n");
 
-	set_pinmux();
+
 
 
 
@@ -1267,10 +1477,14 @@ void si4463_hw_tx(char *buf, int len, struct net_device *dev)
     /* remember to free the sk_buffer allocated in upper layer. */
     dev_kfree_skb(priv->skb);
 
+//    ppp(buf, len);
+
 	struct cmd cmd_;
 	cmd_.type = SEND_CMD;
-	cmd_.data = tx_ph_data;
-	cmd_.len = 19;
+	cmd_.data = buf;//tx_ph_data;
+	//if (len > 64)
+		len = 64;
+	cmd_.len = len;//19;
 	rbuf_enqueue(&cmd_ringbuffer, &cmd_);
 
 }
