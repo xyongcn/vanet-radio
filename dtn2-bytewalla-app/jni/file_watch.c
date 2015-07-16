@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
 	}
   
   	//stdout redirect to File
-  	/*char program_log_filename[128];
+  	char program_log_filename[128];
   	memset(program_log_filename,'\0',sizeof(program_log_filename));
   	sprintf(program_log_filename,"%s/dtn2-bytewalla-app.log",program_log);
   	printf("logfile:%s\n",program_log_filename);
@@ -150,7 +150,7 @@ int main(int argc, char *argv[])
   	else
   	{
   		printf("redirect stdout to file %s failed \n");
-  	}*/
+  	}
 
 //watched log dir
 	file_type *f_logdir_type=(file_type *)malloc(sizeof(file_type));
