@@ -31,7 +31,7 @@ void cs_high(void){
 void getCTS(void) {
 	u8 reply = 0x00;
 	u8 request = 0x44;
-	int j = 10;
+	int j = 25;
 	while (reply != 0xFF) {
 		request = 0x44;
 
@@ -84,24 +84,25 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	ndelay(10);
 	cs_low();
 
-	u8 reply = 0x00;
-	u8 request = 0x44;
-	j = 5;
-	while (reply != 0xFF) {
-		request = 0x44;
-
-		spidev_sync_transfer(&spidev_global, &request, &reply, 1);
-
-		if (reply != 0xFF){
-			printk(KERN_ALERT "getCTS: %x\n", reply);
-			cs_high();
-		//	spidev_sync_transfer(&spidev_global, in_buff, out_buff, byteCountTx);
-			ndelay(10);
-			cs_low();
-		}
-		if (j-- < 0)
-			break;
-	}
+	getCTS();
+//	u8 reply = 0x00;
+//	u8 request = 0x44;
+//	j = 5;
+//	while (reply != 0xFF) {
+//		request = 0x44;
+//
+//		spidev_sync_transfer(&spidev_global, &request, &reply, 1);
+//
+//		if (reply != 0xFF){
+//			printk(KERN_ALERT "getCTS: %x\n", reply);
+//			cs_high();
+//		//	spidev_sync_transfer(&spidev_global, in_buff, out_buff, byteCountTx);
+//			ndelay(10);
+//			cs_low();
+//		}
+//		if (j-- < 0)
+//			break;
+//	}
 	printk(KERN_ALERT "RECV CMD! \n");
 	for (k=0; k<byteCountRx; k++){
 		spidev_global.buffer = &(out_buff[k]);
@@ -391,17 +392,36 @@ void fifo_reset(void)			// 复位发射和接收 FIFO
 	//  SendCmdReceiveAnswer(2, 3, p);
 	spi_write_cmd(2, p);
 }
+void clr_packet_sent_pend(void) {
+	u8 p[2];
+	u8 p2[3];
+	p[0] = GET_PH_STATUS;
+//	p[1] = 0xdf;
+	p[1] = 0x10;
+//	spi_write_cmd(2, p);
+	SendCmdReceiveAnswer(2,3,p,p2);
+}
+
+void clr_packet_rx_pend(void) {
+	u8 p[2];
+	u8 p2[3];
+	p[0] = GET_PH_STATUS;
+//	p[1] = 0xef;
+	p[1] = 0x20;
+//	spi_write_cmd(2, p);
+	SendCmdReceiveAnswer(2,3,p,p2);
+}
 
 void clr_interrupt(void)		// 清中断标志
 {
 	unsigned char p[1];
 
 	p[0] = GET_INT_STATUS;
-//	p[1] = 0;
-//	p[2] = 0;
-//	p[3] = 0;
+	p[1] = 0;
+	p[2] = 0;
+	p[3] = 0;
 	//SendCmdReceiveAnswer(4,9,p);
-	spi_write_cmd(1, p);
+	spi_write_cmd(4, p);
 	//spi_read(9,GET_INT_STATUS);
 }
 
@@ -411,9 +431,9 @@ void get_interrupt_status(void)		// 中断
 	unsigned char p2[10];
 
 	p[0] = GET_INT_STATUS;
-	p[1] = 1;
-	p[2] = 1;
-	p[3] = 1;
+	p[1] = 0xfb;
+	p[2] = 0x7f;
+	p[3] = 0x7f;
 	SendCmdReceiveAnswer(4,9,p,p2);
 //	spi_write_cmd(4, p);
 	//spi_read(9,GET_INT_STATUS);

@@ -271,16 +271,16 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 	message->complete = spidev_complete;
 	message->context = &done;
 
-//	spin_lock_irq(&spidev->spi_lock);
+	spin_lock_irq(&spidev->spi_lock);
 //	down(&sem_spi);
-	mutex_lock(&mutex_spi);
+//	mutex_lock(&mutex_spi);
 	if (spidev->spi == NULL)
 		status = -ESHUTDOWN;
 	else
 		status = spi_async(spidev->spi, message);
-//	spin_unlock_irq(&spidev->spi_lock);
+	spin_unlock_irq(&spidev->spi_lock);
 //	up(&sem_spi);
-	mutex_unlock(&mutex_spi);
+//	mutex_unlock(&mutex_spi);
 
 	if (status == 0) {
 		wait_for_completion(&done);
@@ -298,6 +298,8 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 inline ssize_t
 spidev_sync_transfer(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t len)
 {
+	mutex_lock(&mutex_spi);
+	ssize_t ret;
 	struct spi_transfer	t = {
 			.tx_buf		= tx_buf,
 			.rx_buf		= rx_buf,
@@ -308,12 +310,16 @@ spidev_sync_transfer(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t 
 
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
-	return spidev_sync(spidev, &m);
+	ret = spidev_sync(spidev, &m);
+	mutex_unlock(&mutex_spi);
+	return ret;
 }
 
 inline ssize_t
 spidev_sync_write(struct spidev_data *spidev,  size_t len)
 {
+	mutex_lock(&mutex_spi);
+	ssize_t ret;
 	struct spi_transfer	t = {
 			.tx_buf		= spidev->buffer,
 			.len		= len,
@@ -323,27 +329,31 @@ spidev_sync_write(struct spidev_data *spidev,  size_t len)
 
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
-	return spidev_sync(spidev, &m);
+	ret = spidev_sync(spidev, &m);
+	mutex_unlock(&mutex_spi);
+	return ret;
 }
 
-inline ssize_t
-spidev_async_write(struct spidev_data *spidev,  size_t len)
-{
-	struct spi_transfer	t = {
-			.tx_buf		= spidev->buffer,
-			.len		= len,
-			.cs_change	= 1,
-		};
-	struct spi_message	m;
-
-	spi_message_init(&m);
-	spi_message_add_tail(&t, &m);
-	return spi_async(spidev->spi, &m);
-}
+//inline ssize_t
+//spidev_async_write(struct spidev_data *spidev,  size_t len)
+//{
+//	struct spi_transfer	t = {
+//			.tx_buf		= spidev->buffer,
+//			.len		= len,
+//			.cs_change	= 1,
+//		};
+//	struct spi_message	m;
+//
+//	spi_message_init(&m);
+//	spi_message_add_tail(&t, &m);
+//	return spi_async(spidev->spi, &m);
+//}
 
 inline ssize_t
 spidev_sync_read(struct spidev_data *spidev, size_t len)
 {
+	mutex_lock(&mutex_spi);
+	ssize_t ret;
 	struct spi_transfer	t = {
 			.rx_buf		= spidev->buffer,
 			.len		= len,
@@ -353,7 +363,9 @@ spidev_sync_read(struct spidev_data *spidev, size_t len)
 
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
-	return spidev_sync(spidev, &m);
+	ret = spidev_sync(spidev, &m);
+	mutex_unlock(&mutex_spi);
+	return ret;
 }
 
 
@@ -1089,8 +1101,16 @@ static int irq_handler(void* data){
 			rx_flag = 1;
 		}
 		//Clear IRQ, rx process will clear irq.
-		if(!rx_flag)
-			clr_interrupt();
+		if(!rx_flag && tx_complete_flag){
+//			printk(KERN_ALERT "(((((((((((((((1)))))))))))))\n");
+//			get_interrupt_status();
+//			printk(KERN_ALERT "(((((((((((((((2)))))))))))))\n");
+//			clr_packet_sent_pend();
+//			printk(KERN_ALERT "(((((((((((((((3)))))))))))))\n");
+//			get_interrupt_status();
+//			printk(KERN_ALERT "(((((((((((((((4)))))))))))))\n");
+//			clr_interrupt();
+		}
 	}
 	return -1;
 }
@@ -1109,29 +1129,31 @@ static int cmd_queue_handler(void *data){
 			ppp(tmp, 64);
 		    //get data from hardware register
 			si4463_rx(tmp_devs,64,tmp);
-			clr_interrupt();
+//			clr_interrupt();
+			clr_packet_rx_pend();
 			break;
 		case SEND_CMD:
 			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
 			//enable_tx_interrupt();
 
-			ppp(cmd_->data, cmd_->len);
-			printk(KERN_ALERT "Before: \n");
-			get_fifo_info();
-			get_interrupt_status();
+//			ppp(cmd_->data, cmd_->len);
+//			printk(KERN_ALERT "Before: \n");
+//			get_fifo_info();
+//			get_interrupt_status();
 			spi_write_fifo(cmd_->data, cmd_->len);
-			printk(KERN_ALERT "Writing: \n");
-			get_fifo_info();
-			get_interrupt_status();
+//			printk(KERN_ALERT "Writing: \n");
+//			get_fifo_info();
+//			get_interrupt_status();
 			tx_start();
 //			mdelay(1300);
 			//semaphore
 			down(&sem_tx_complete);
 //			mutex_lock(&mutex_tx_complete);
-			printk(KERN_ALERT "Sending: \n");
-			get_fifo_info();
-			get_interrupt_status();
+//			printk(KERN_ALERT "Sending: \n");
+//			get_fifo_info();
+//			get_interrupt_status();
 			//clr_interrupt();
+			clr_packet_sent_pend();
 
 			break;
 

@@ -29,6 +29,8 @@ void tune_tx(void);
 void setFrequency(unsigned long freq); //Not in used
 void si4463_init(void);
 void clr_interrupt(void);
+void clr_packet_sent_pend(void);
+void clr_packet_rx_pend(void);
 //void clr_interrupt_async(void);
 void get_interrupt_status(void);
 void enable_chip_irq(void);
