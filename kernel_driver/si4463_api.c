@@ -18,9 +18,15 @@ extern wait_queue_head_t spi_wait_queue;
 //const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
 //const unsigned char tx_ph_data[14] = {0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11,0x11};
 
-int payload_length = 19;
+int payload_length = 64;
 int freq_channel = 0;
 /*-------------------------------------------------------------------------*/
+void cs_low(void){
+	gpio_set_value(CS_SELF, 0);
+}
+void cs_high(void){
+	gpio_set_value(CS_SELF, 1);
+}
 
 void getCTS(void) {
 	u8 reply = 0x00;
@@ -33,10 +39,10 @@ void getCTS(void) {
 
 		if (reply != 0xFF){
 			printk(KERN_ALERT "getCTS: %x\n", reply);
-			gpio_set_value(CS_SELF, 1);
+			cs_high();
 		//	spidev_sync_transfer(&spidev_global, in_buff, out_buff, byteCountTx);
 			ndelay(100);
-			gpio_set_value(CS_SELF, 0);
+			cs_low();
 		}
 		if (j-- < 0)
 			break;
@@ -67,16 +73,16 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	char answer, i, j, k;
 //发送命令
 	//printk(KERN_ALERT "Send CMD! \n");
-	gpio_set_value(CS_SELF, 0);
+	cs_low();
 	for (i=0; i<byteCountTx; i++){
 		spidev_global.buffer = &(in_buff[i]);
 		//printk(KERN_ALERT "%x ", *(spidev_global.buffer));
 		spidev_sync_write(&spidev_global, 1);
 	}
-	gpio_set_value(CS_SELF, 1);
+	cs_high();
 //	ndelay(100);
 	ndelay(10);
-	gpio_set_value(CS_SELF, 0);
+	cs_low();
 
 	u8 reply = 0x00;
 	u8 request = 0x44;
@@ -88,10 +94,10 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 
 		if (reply != 0xFF){
 			printk(KERN_ALERT "getCTS: %x\n", reply);
-			gpio_set_value(CS_SELF, 1);
+			cs_high();
 		//	spidev_sync_transfer(&spidev_global, in_buff, out_buff, byteCountTx);
 			ndelay(10);
-			gpio_set_value(CS_SELF, 0);
+			cs_low();
 		}
 		if (j-- < 0)
 			break;
@@ -103,7 +109,7 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 
 		printk(KERN_ALERT "%x ", *(spidev_global.buffer));
 	}
-	gpio_set_value(CS_SELF, 1);
+	cs_high();
 	return out_buff;
 }
 /*
@@ -113,19 +119,19 @@ int spi_write_cmd_async(int byteCountTx, u8 * tx_buff) {
 	int status;
 //发送命令
 	//printk(KERN_ALERT "Send CMD! \n");
-	gpio_set_value(CS_SELF, 0);
+	cs_low();
 	for (i=0; i<byteCountTx; i++){
 		spidev_global.buffer = &(tx_buff[i]);
 		//printk(KERN_ALERT "%x ", *(spidev_global.buffer));
 		status = spidev_sync_write_nosleep(&spidev_global, 1);
 	}
-	gpio_set_value(CS_SELF, 1);
+	cs_high();
 	return status;
 }
 */
 
 u8 * spi_write_cmd(int byteCountTx, u8 * in_buff) {
-	SendCmdReceiveAnswer(byteCountTx, 0, in_buff, NULL);
+	return SendCmdReceiveAnswer(byteCountTx, 0, in_buff, NULL);
 }
 
 
@@ -139,24 +145,25 @@ void reset(void) {
 //POWER_UP
 /*
 	printk(KERN_ALERT "Set CS to 1 \n");
-	gpio_set_value(CS_SELF, 1);
+	cs_high();
 	printk(KERN_ALERT "get CS %d \n",gpio_get_value(CS_SELF));
 	mdelay(5000);
 	printk(KERN_ALERT "Set CS to 0 \n");
-	gpio_set_value(CS_SELF, 0);
+	cs_low();
 	printk(KERN_ALERT "get CS %d \n",gpio_get_value(CS_SELF));
 	mdelay(5000);
 	printk(KERN_ALERT "Set CS to 1 \n");
-	gpio_set_value(CS_SELF, 1);
+	cs_high();
 	printk(KERN_ALERT "get CS %d \n",gpio_get_value(CS_SELF));
 	mdelay(5000);
 	printk(KERN_ALERT "Set CS to 0 \n");
-	gpio_set_value(CS_SELF, 0);
+	cs_low();
 	printk(KERN_ALERT "get CS %d \n",gpio_get_value(CS_SELF));
 */
 //const unsigned char init_command[] = {0x02, 0x01, 0x01, x3, x2, x1, x0};// no patch, boot main app. img, FREQ_VCXO, return 1 byte
 	u8 init_command[] = { RF_POWER_UP };
 	SendCmdReceiveAnswer(7, 1, init_command, buff);
+	mdelay(20);
 	//ppp(buff, 1);
 	SendCmdReceiveAnswer(7, 1, init_command, buff);
 
@@ -184,7 +191,7 @@ void set_frr_ctl(void) {
   p[1] = 0x02;
   p[2] = 0x04;
   p[3] = 0x00;
-  p[4] = 0x0a; //frr_a
+  p[4] = 0x04; //frr_a, INT_PH_PEND: Packet Handler status pending.
   p[5] = 0x02; //frr_b
   p[6] = 0x09; //frr_c
   p[7] = 0x00; //frr_d
@@ -223,7 +230,7 @@ void si4463_init(void)
 	app_command_buf[4]  = 0x40;  		// 收发缓冲区64字节,PH,高灵敏度模式
 	spi_write_cmd(5, app_command_buf);
 
-	spi_write_cmd(0x08, RF_FRR_CTL_A_MODE_4_data);
+//	spi_write_cmd(0x08, RF_FRR_CTL_A_MODE_4_data);
 
 	// spi_write(0x0D, RF_PREAMBLE_TX_LENGTH_9_data); 	// 设置前导码
 	app_command_buf[0] = 0x11;
@@ -355,7 +362,7 @@ void si4463_init(void)
 	app_command_buf[4]  = 'a';
 	app_command_buf[5]  = 0xff;
 	//     if(ss_pin == 1)
-	app_command_buf[6]  = 0x40;
+	app_command_buf[6]  = 0x00;
 	//      else
 	//        app_command_buf[6]  = 0x40;
 	app_command_buf[7]  = 'b';
@@ -372,7 +379,7 @@ void si4463_init(void)
 	spi_write_cmd(5, RF_MODEM_CLKGEN_BAND_1_data);
 	spi_write_cmd(12, RF_FREQ_CONTROL_INTE_8_data); 	    // 设置频率
 
-	set_frr_ctl();
+	set_frr_ctl(); //set frr register
 }
 
 void fifo_reset(void)			// 复位发射和接收 FIFO
@@ -387,14 +394,28 @@ void fifo_reset(void)			// 复位发射和接收 FIFO
 
 void clr_interrupt(void)		// 清中断标志
 {
-	unsigned char p[4];
+	unsigned char p[1];
 
 	p[0] = GET_INT_STATUS;
-	p[1] = 0;
-	p[2] = 0;
-	p[3] = 0;
+//	p[1] = 0;
+//	p[2] = 0;
+//	p[3] = 0;
 	//SendCmdReceiveAnswer(4,9,p);
-	spi_write_cmd(4, p);
+	spi_write_cmd(1, p);
+	//spi_read(9,GET_INT_STATUS);
+}
+
+void get_interrupt_status(void)		// 中断
+{
+	unsigned char p[1];
+	unsigned char p2[10];
+
+	p[0] = GET_INT_STATUS;
+	p[1] = 1;
+	p[2] = 1;
+	p[3] = 1;
+	SendCmdReceiveAnswer(4,9,p,p2);
+//	spi_write_cmd(4, p);
 	//spi_read(9,GET_INT_STATUS);
 }
 /*
@@ -411,32 +432,49 @@ void clr_interrupt_nosleep(void)		// 清中断标志
 	//spi_read(9,GET_INT_STATUS);
 }
 */
-void enable_tx_interrupt(void)		// 使能发射中断
-{
-	unsigned char p[6];
 
+/**
+ * 0x00 INT_CTL_ENABLE: PH_INT_STATUS_EN
+ * 0x01 INT_CTL_PH_ENABLE: PACKET_SENT_EN, PACKET_RX_EN, CRC_ERROR_EN
+ * 0x02
+ */
+void enable_chip_irq(void) {
+	unsigned char p[6];
 	p[0] = 0x11;
 	p[1] = 0x01;
 	p[2] = 0x02;
 	p[3] = 0x00;
 	p[4] = 0x01;
-	p[5] = 0x20;
+	p[5] = 0x38;
 	spi_write_cmd(6, p);
 }
 
-void enable_rx_interrupt(void)		// 使能接收中断
-{
-	unsigned char p[7];
-
-	p[0] = 0x11;
-	p[1] = 0x01;
-	p[2] = 0x03;
-	p[3] = 0x00;
-	p[4] = 0x03;
-	p[5] = 0x18;
-	p[6] = 0x00;
-	spi_write_cmd(7, p);
-}
+//void enable_tx_interrupt(void)		// 使能发射中断
+//{
+//	unsigned char p[6];
+//
+//	p[0] = 0x11;
+//	p[1] = 0x01;
+//	p[2] = 0x02;
+//	p[3] = 0x00;
+//	p[4] = 0x01;
+//	p[5] = 0x20;
+//	spi_write_cmd(6, p);
+//}
+//
+//void enable_rx_interrupt(void)		// 使能接收中断
+//{
+//	unsigned char p[7];
+//
+//	p[0] = 0x11;
+//	p[1] = 0x01;
+//	p[2] = 0x03;
+//	p[3] = 0x00;
+//	p[4] = 0x03;
+//	p[5] = 0x18;
+//	p[6] = 0x00;
+//	spi_write_cmd(7, p);
+//}
 
 void tx_start(void)					// 开始发射
 {
@@ -478,7 +516,7 @@ void rx_start(void)					// 开始接收
 
 void spi_write_fifo(unsigned char * data, int len) {
 	int j;
-	gpio_set_value(CS_SELF, 0);
+	cs_low();
 	u8 cmd = WRITE_TX_FIFO;
 	spidev_global.buffer = &cmd;
 	spidev_sync_write(&spidev_global, 1);
@@ -486,14 +524,14 @@ void spi_write_fifo(unsigned char * data, int len) {
 		cmd = data[j];
 		spidev_sync_write(&spidev_global, 1);
 	}
-	gpio_set_value(CS_SELF, 1);
+	cs_high();
 }
 
 void spi_read_fifo(unsigned char * st, int len) {
 	int j;
-	gpio_set_value(CS_SELF, 0);
+	cs_low();
 	u8 cmd = READ_RX_FIFO;
-	u8 ret;
+//	u8 ret;
 	spidev_global.buffer = &cmd;
 	spidev_sync_write(&spidev_global, 1);
 	cmd = 0x00;
@@ -502,7 +540,7 @@ void spi_read_fifo(unsigned char * st, int len) {
 		spidev_sync_transfer(&spidev_global, &cmd, &(st[j]),  1);
 
 	}
-	gpio_set_value(CS_SELF, 1);
+	cs_high();
 
 	//Serial.println();
 	//  unsigned char p[] = {READ_RX_FIFO};
@@ -518,4 +556,16 @@ void get_fifo_info(void)			// 复位发射和接收 FIFO
 	p[1] = 0x00;
 	SendCmdReceiveAnswer(2, 3, p, rx);
 	//	spi_write(2,p);
+}
+
+void read_frr_a(u8 *value) {
+	u8 cmd;
+	int j;
+	cmd = FRR_A_READ;
+	cs_low();
+	spidev_global.buffer = &cmd;
+	spidev_sync_write(&spidev_global, 1);
+	cmd = 0x00;
+	spidev_sync_transfer(&spidev_global, &cmd, value,  1);
+	cs_high();
 }

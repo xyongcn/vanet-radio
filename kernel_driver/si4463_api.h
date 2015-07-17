@@ -17,7 +17,8 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 void spi_write_fifo(unsigned char * data, int len);
 void spi_read_fifo(unsigned char * st, int len);
 void fifo_reset(void);
-void read_frr_x(char no);    //no=a,b,c,d represent frr_a, frr_b, frr_c, frr_d
+//void read_frr_x(char no);    //no=a,b,c,d represent frr_a, frr_b, frr_c, frr_d
+void read_frr_a(u8 *value);
 
 //Configure
 void reset(void);
@@ -28,9 +29,11 @@ void tune_tx(void);
 void setFrequency(unsigned long freq); //Not in used
 void si4463_init(void);
 void clr_interrupt(void);
-void clr_interrupt_async(void);
-void enable_tx_interrupt(void);		// 使能发射中断
-void enable_rx_interrupt(void);		// 使能接收中断
+//void clr_interrupt_async(void);
+void get_interrupt_status(void);
+void enable_chip_irq(void);
+//void enable_tx_interrupt(void);		// 使能发射中断
+//void enable_rx_interrupt(void);		// 使能接收中断
 void tx_start(void);
 void rx_start(void);					// 开始接收
 void tx_start_1B(void);

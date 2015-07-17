@@ -129,6 +129,20 @@ MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 
 #include <linux/fs.h>
 
+#include <linux/semaphore.h> /* semphone for the TX */
+#include <linux/mutex.h>
+/* semphone for the TX */
+//DEFINE_SEMAPHORE(sem_tx_complete);
+struct semaphore sem_tx_complete;
+//DEFINE_MUTEX(mutex_tx_complete);
+/* semphone for the SPI */
+//DEFINE_SEMAPHORE(sem_spi);
+DEFINE_MUTEX(mutex_spi);
+/* semphone for the irq */
+//DEFINE_SEMAPHORE(sem_irq);
+struct semaphore sem_irq;
+//DEFINE_MUTEX(mutex_irq);
+
 
 #define IRQ_NET_CHIP  20//需要根据硬件确定
 
@@ -142,14 +156,17 @@ struct spi_device *spi_save;
 struct spidev_data spidev_global;
 struct spidev_data *spidev_test_global;
 
-//wait_queue_head_t spi_wait_queue;
+//wait_queue_head_t wait_irq;
 //struct cmd_queue *cmd_queue_head;
 rbuf_t cmd_ringbuffer;
 struct task_struct *cmd_handler_tsk;
+struct task_struct *irq_handler_tsk;
 
 /* FOR DEBUG */
 static u8 tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
 
+
+/* PIN MUX */
 #define pin_mux_num  25
 const char gpio_pin[pin_mux_num][4] = {
 		/*"111 ",*/
@@ -227,7 +244,7 @@ const struct gpio pin_mux[pin_mux_num] = {
 void ppp(u8 * arr, int len){
 	int i = 0;
 	printk(KERN_ALERT "ppp: len=[%d]\n", len);
-	for(;i<len;i++)
+	for(i = 0;i<len;i++)
 		printk(KERN_ALERT "%x ", arr[i]);
 	printk(KERN_ALERT "\n");
 }
@@ -254,12 +271,16 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 	message->complete = spidev_complete;
 	message->context = &done;
 
-	spin_lock_irq(&spidev->spi_lock);
+//	spin_lock_irq(&spidev->spi_lock);
+//	down(&sem_spi);
+	mutex_lock(&mutex_spi);
 	if (spidev->spi == NULL)
 		status = -ESHUTDOWN;
 	else
 		status = spi_async(spidev->spi, message);
-	spin_unlock_irq(&spidev->spi_lock);
+//	spin_unlock_irq(&spidev->spi_lock);
+//	up(&sem_spi);
+	mutex_unlock(&mutex_spi);
 
 	if (status == 0) {
 		wait_for_completion(&done);
@@ -1006,14 +1027,14 @@ void si4463_rx(struct net_device *dev, int len, unsigned char *buf)
     netif_rx(skb);
     return;
 }
-
-static irqreturn_t si4463_interrupt (int irq, void *dev_id)
-{
-	//printk(KERN_ALERT "INTERRRRRRR1111\n");
-
-
+static void irq_tx_complete() {
+	printk(KERN_ALERT "TX_COMPLETE\n");
+	up(&sem_tx_complete);
+//	mutex_unlock(&mutex_tx_complete);
+}
+static void irq_rx(void *dev_id){
+	printk(KERN_ALERT "RECV\n");
 	tmp_devs = (struct net_device *) dev_id;
-
 	//cmd_queue_head->count++;
 	struct cmd cmd_;
 	cmd_.type = READFIFO_CMD;
@@ -1024,14 +1045,60 @@ static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 //	rbuf_enqueue(&cmd_ringbuffer, &cmd_);
 	rbuf_insert_readcmd(&cmd_ringbuffer, &cmd_);
 	//wake_up_interruptible(&spi_wait_queue);
+}
+static irqreturn_t si4463_interrupt (int irq, void *dev_id)
+{
 
+	printk(KERN_ALERT "=====IRQ=====\n");
+	up(&sem_irq);
+//	mutex_unlock(&mutex_irq);
 	return IRQ_HANDLED;
+}
+
+static int irq_handler(void* data){
+	bool tx_complete_flag;
+	bool rx_flag;
+
+	while(1/*!kthread_should_stop()*/) {
+
+		printk(KERN_ALERT "===irq_handler===\n");
+		tx_complete_flag = 0;
+		rx_flag = 0;
+
+		down(&sem_irq);
+//		mutex_lock(&mutex_irq);
+		/*
+		 * read FRR_A for PH_STATUS_PEND (or status????)
+		 * 1, tx complete
+		 * 2, rx
+		 */
+		u8 ph_pend;
+		read_frr_a(&ph_pend);
+		//Check CRC error
+		//...
+		//
+
+		//Check Tx complete
+		if((ph_pend & 0x20) == 0x20) {
+			irq_tx_complete();
+			tx_complete_flag = 1;
+		}
+		//Check packet received
+		if((ph_pend & 0x10) == 0x10) {
+			irq_rx((void*)si4463_devs);
+			rx_flag = 1;
+		}
+		//Clear IRQ, rx process will clear irq.
+		if(!rx_flag)
+			clr_interrupt();
+	}
+	return -1;
 }
 
 static int cmd_queue_handler(void *data){
 	struct cmd *cmd_;
 	u8 tmp[64];
-	while(1){
+	while(1/*!kthread_should_stop()*/){
 		printk(KERN_ALERT "cmd_queue_handler:1\n");
 
 		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
@@ -1047,22 +1114,30 @@ static int cmd_queue_handler(void *data){
 		case SEND_CMD:
 			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
 			//enable_tx_interrupt();
+
 			ppp(cmd_->data, cmd_->len);
 			printk(KERN_ALERT "Before: \n");
 			get_fifo_info();
+			get_interrupt_status();
 			spi_write_fifo(cmd_->data, cmd_->len);
 			printk(KERN_ALERT "Writing: \n");
 			get_fifo_info();
+			get_interrupt_status();
 			tx_start();
-			mdelay(1300);
+//			mdelay(1300);
+			//semaphore
+			down(&sem_tx_complete);
+//			mutex_lock(&mutex_tx_complete);
 			printk(KERN_ALERT "Sending: \n");
 			get_fifo_info();
+			get_interrupt_status();
 			//clr_interrupt();
 
 			break;
 
 		}
 	}
+	return -1;
 
 }
 
@@ -1387,7 +1462,8 @@ int si4463_open(struct net_device *dev)
 
 	/*RX*/
 	//printk(KERN_ALERT "RXXXXXXXXXXX\n");
-	enable_rx_interrupt();
+//	enable_rx_interrupt();
+	enable_chip_irq();
 	//printk(KERN_ALERT "enable_rx_interrupt\n");
 	clr_interrupt();
 	//printk(KERN_ALERT "clr_interrupt\n");
@@ -1416,6 +1492,14 @@ int si4463_open(struct net_device *dev)
 		printk(KERN_ALERT "create kthread failed!\n");
 	} else {
 		printk("create ktrhead ok!\n");
+	}
+
+	/* IRQ HANDLER */
+	irq_handler_tsk = kthread_run(irq_handler, NULL, "irq_handler");
+	if (IS_ERR(irq_handler_tsk)) {
+		printk(KERN_ALERT "create kthread irq_handler failed!\n");
+	} else {
+		printk("create ktrhead irq_handler ok!\n");
 	}
 
 /*
@@ -1450,6 +1534,9 @@ int si4463_release(struct net_device *dev)
 	gpio_unexport(111);
 	gpio_unexport(114);
 	gpio_unexport(115);
+
+//	kthread_stop(cmd_handler_tsk);
+//	kthread_stop(irq_handler_tsk);
     return 0;
 }
 
@@ -1647,8 +1734,9 @@ static int __init spidev_init(void)
 		printk(KERN_ALERT "demo: error %i registering device \"%s\"\n",result, si4463_devs->name);
 	else
 		ret = 0;
-
-
+	/* init sem_irq , locked */
+	sema_init(&sem_irq, 0);
+	sema_init(&sem_tx_complete, 0);
 out:
 	return status;
 }

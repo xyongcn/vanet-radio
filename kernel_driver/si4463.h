@@ -83,5 +83,7 @@ inline ssize_t spidev_sync_write(struct spidev_data *spidev,  size_t len);
 inline ssize_t spidev_async_write(struct spidev_data *spidev,  size_t len);
 void ppp(u8 * arr, int len);
 
+int set_pinmux(void);
+
 #endif
 
