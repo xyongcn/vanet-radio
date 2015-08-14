@@ -36,6 +36,18 @@ void bytewalla_send(char *destination_eid,char *local_eid,char *payload_path);
 #define DTN2 0
 #define BYTEWALLA 1
 
+#define LOGOUT(...) \
+fprintf(stdout,__VA_ARGS__); \
+if(program_log_file!=NULL) \
+{ \
+	fprintf(program_log_file,__VA_ARGS__); \
+	fflush(program_log_file); \
+} 
+
+//program log file's FILE
+FILE *program_log_file=NULL;
+
+//queue's head
 queue_head *received_file_queue;
 
 int main(int argc, char *argv[])
@@ -140,7 +152,11 @@ int main(int argc, char *argv[])
   	char program_log_filename[128];
   	memset(program_log_filename,'\0',sizeof(program_log_filename));
   	sprintf(program_log_filename,"%s/dtn2-bytewalla-app.log",program_log);
-  	printf("logfile:%s\n",program_log_filename);
+  	program_log_file=fopen(program_log_filename,"w");
+  	if(program_log_file!=NULL)
+  		LOGOUT("create program log file %s successfully",program_log_filename);
+
+  	/*printf("logfile:%s\n",program_log_filename);
   	remove(program_log_filename);
   	int out=open(program_log_filename,O_CREAT|O_RDWR,S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
   	if(out>0)
@@ -150,7 +166,7 @@ int main(int argc, char *argv[])
   	else
   	{
   		printf("redirect stdout to file %s failed \n");
-  	}
+  	}*/
 
 //watched log dir
 	file_type *f_logdir_type=(file_type *)malloc(sizeof(file_type));
@@ -173,7 +189,7 @@ int main(int argc, char *argv[])
 	int t=pthread_create(&watchLogDir,NULL,watchFile,f_logdir_type);
 	if(t!=0)
 	{
-		fprintf(stdout,"create thread for watching dtn log dir failed\n");
+		LOGOUT("create thread for watching dtn log dir failed\n");
 	}
 	else
 	{
@@ -195,11 +211,11 @@ int main(int argc, char *argv[])
 	t=pthread_create(&watchSharedDir,NULL,watchFile,f_shared_type);
 	if(t!=0)
 	{
-		fprintf(stdout,"create thread for watching shared dir failed\n");
+		LOGOUT("create thread for watching shared dir failed\n");
 	}
 	else
 	{
-		// fprintf(stdout,"watching shared dir %s\n",argv[1]);
+		// LOGOUT("watching shared dir %s\n",argv[1]);
 		pthread_detach(watchSharedDir);
 	}
 
@@ -220,16 +236,16 @@ void * watchFile(void *s)
 	if(temp_s->type==LOGDIR)
 	{
 		file=temp_s->dtn_log_dir;
-		fprintf(stdout,"watching dtn log dir %s\n",file);
+		LOGOUT("watching dtn log dir %s\n",file);
 	}
 	else if(temp_s->type==SHAREDDIR)
 	{
 		file=temp_s->dtn_shared_dir;
-		fprintf(stdout,"watching shared dir %s\n",file);
+		LOGOUT("watching shared dir %s\n",file);
 	}
 	else
 	{
-		fprintf(stdout,"can't watching %s dir \n","null");
+		LOGOUT("can't watching %s dir \n","null");
 		return NULL;
 	}
 
@@ -272,18 +288,18 @@ void * watchFile(void *s)
 			{
 				/* File was accessed */
 				case IN_ACCESS:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_ACCESS");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_ACCESS");
 				break;
 
 				/* File was modified */
 				case IN_MODIFY:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_MODIFY");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_MODIFY");
 
 				break;
 
 				/* File changed attributes */
 				case IN_ATTRIB:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_ATTRIB");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_ATTRIB");
 				break;
 
 				/* File open for writing was closed */
@@ -297,7 +313,7 @@ void * watchFile(void *s)
 
 			
 				char *filename=event->name;
-				fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_CLOSE_WRITE");
+				LOGOUT("file:%s --- event:%s\n",event->name,"IN_CLOSE_WRITE");
 				//related option
 				//remove log file
 
@@ -306,12 +322,12 @@ void * watchFile(void *s)
 					//check that if it's received file
 					if(file_queue_find_and_remove(received_file_queue,event->name)==1)
 					{
-						fprintf(stdout,"file %s is the received file\n",event->name);
+						LOGOUT("file %s is the received file\n",event->name);
 						break;
 					}
 					else
 					{
-						fprintf(stdout,"this is not the duplicated file\n");
+						LOGOUT("this is not the duplicated file\n");
 					}
 
 					//process the file to send
@@ -330,7 +346,7 @@ void * watchFile(void *s)
 					// 	break;
 					if(send_file_fd==-1 || temp_file_fd==-1)
 					{
-						fprintf(stdout,"open shared file %s failed or create temp payload %s failed\n",send_filename,temp_filename);
+						LOGOUT("open shared file %s failed or create temp payload %s failed\n",send_filename,temp_filename);
 						break;
 					}
 
@@ -360,7 +376,7 @@ void * watchFile(void *s)
 						{
 							// close(temp_file_fd);
 							// close(send_file_fd);
-							// fprintf(stdout,"write into temp payload %s failed\n",temp_filename);
+							// LOGOUT("write into temp payload %s failed\n",temp_filename);
 							readnum=-1;
 							break;
 						}
@@ -371,28 +387,28 @@ void * watchFile(void *s)
 
 					if(readnum==-1)
 					{
-						fprintf(stdout,"write into temp payload %s failed\n",temp_filename);
+						LOGOUT("write into temp payload %s failed\n",temp_filename);
 						break;
 					}
 					else
 					{
-						fprintf(stdout,"create temp payload file %s \n",temp_filename);
+						LOGOUT("create temp payload file %s \n",temp_filename);
 					}
 
 
 					if(temp_s->dtn_type==DTN2)
 					{
-						// fprintf(stdout,"dtn send bundle\n");
+						// LOGOUT("dtn send bundle\n");
 						dtn2_send(temp_s->destination_eid,temp_s->local_eid,temp_filename);
 					}
 					else if(temp_s->dtn_type==BYTEWALLA)
 					{
-						// fprintf(stdout,"bytewalla send bundle\n");
+						// LOGOUT("bytewalla send bundle\n");
 						bytewalla_send(temp_s->destination_eid,temp_s->local_eid,temp_filename);
 					}
 					else
 					{
-						fprintf(stdout,"wrong argumen dtn_type:%d\n",temp_s->dtn_type);
+						LOGOUT("wrong argumen dtn_type:%d\n",temp_s->dtn_type);
 					}
 
 					//remove temp file
@@ -406,11 +422,11 @@ void * watchFile(void *s)
 
 					if(remove(removefilename)!=0)
 					{
-						fprintf(stdout,"remove log file %s failed\n",removefilename);
+						LOGOUT("remove log file %s failed\n",removefilename);
 					}
 					else
 					{
-						fprintf(stdout,"remove log file %s successfully\n",removefilename);
+						LOGOUT("remove log file %s successfully\n",removefilename);
 					}
 
 					// parse payload
@@ -426,7 +442,7 @@ void * watchFile(void *s)
 					}
 					else
 					{
-						fprintf(stdout,"wrong dtn_type:%d",temp_s->dtn_type);
+						LOGOUT("wrong dtn_type:%d",temp_s->dtn_type);
 						break;
 					}
 
@@ -434,18 +450,18 @@ void * watchFile(void *s)
 
 					if(payload_file==NULL)
 					{
-						fprintf(stdout,"payload %s do not exsists\n",payload_filename);
+						LOGOUT("payload %s do not exsists\n",payload_filename);
 						break;
 					}*/
 					int payload_file_fd=open(payload_filename,O_RDONLY);
 					if(payload_file_fd==-1)
 					{
-						fprintf(stdout,"payload %s do not exsists\n",payload_filename);
+						LOGOUT("payload %s do not exsists\n",payload_filename);
 						break;
 					}
 					else
 					{
-						fprintf(stdout,"open the payload file %s\n",payload_filename);
+						LOGOUT("open the payload file %s\n",payload_filename);
 					}
 
 					char buff[256];
@@ -458,7 +474,7 @@ void * watchFile(void *s)
 					int num=(int)buff[0]+1;//the first char is the num of filename
 					buff[0]='/';*/
 					read(payload_file_fd,buff,sizeof(buff));
-					fprintf(stdout,"the shared file name:%s\n",buff);
+					LOGOUT("the shared file name:%s\n",buff);
 
 					//get the received file's name ,and put into the received queue
 					/*char *add_queue_file_name=(char *)malloc(sizeof(char)*num);
@@ -469,11 +485,11 @@ void * watchFile(void *s)
 					node->content=add_queue_file_name;
 					if(queue_add(received_file_queue,node)==0)
 					{
-						fprintf(stdout,"add file %s to received_file_queue failed \n",add_queue_file_name);
+						LOGOUT("add file %s to received_file_queue failed \n",add_queue_file_name);
 					}
 					else
 					{
-						fprintf(stdout,"add file %s to received_file_queue \n",add_queue_file_name);
+						LOGOUT("add file %s to received_file_queue \n",add_queue_file_name);
 					}
 
 					char target_filename[256];
@@ -491,7 +507,7 @@ void * watchFile(void *s)
 					int target_file_fd=open(target_filename,O_WRONLY|O_CREAT|O_TRUNC,0766);
 					if(target_file_fd==-1)
 					{
-						fprintf(stdout,"ceated received shared file %s failed\n",target_filename);
+						LOGOUT("ceated received shared file %s failed\n",target_filename);
 						break;
 					}
 
@@ -519,82 +535,82 @@ void * watchFile(void *s)
 
 					if(read_num==-1)
 					{
-						fprintf(stdout,"generate shared file %s form payload %s failed\n",target_filename,payload_filename);
+						LOGOUT("generate shared file %s form payload %s failed\n",target_filename,payload_filename);
 						break;
 					}
 					else
 					{
-						fprintf(stdout,"generate shared file %s successfully\n",target_filename);
+						LOGOUT("generate shared file %s successfully\n",target_filename);
 					}
 				}
 
 			
 				/*else
-					fprintf(stdout,"file:%s last_file:%s --- already warning\n",event->name,last_file_name);*/
+					LOGOUT("file:%s last_file:%s --- already warning\n",event->name,last_file_name);*/
 
 				strcpy(last_file_name,event->name);
 				break;
 
 				/* File open read-only was closed */
 				case IN_CLOSE_NOWRITE:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_CLOSE_NOWRITE");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_CLOSE_NOWRITE");
 				break;
 
 				/* File was opened */
 				case IN_OPEN:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_OPEN");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_OPEN");
 				break;
 
 				/* File was moved from X */
 				case IN_MOVED_FROM:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_MOVED_FROM");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_MOVED_FROM");
 				break;
 
 				/* File was moved to X */
 				case IN_MOVED_TO:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_MOVED_TO");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_MOVED_TO");
 				break;
 
 				/* Subdir or file was deleted */
 				case IN_DELETE:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_DELETE");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_DELETE");
 				break;
 
 				/* Subdir or file was created */
 				case IN_CREATE:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_CREATE");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_CREATE");
 				break;
 
 				/* Watched entry was deleted */
 				case IN_DELETE_SELF:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_DELETE_SELF");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_DELETE_SELF");
 				break;
 
 				/* Watched entry was moved */
 				case IN_MOVE_SELF:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_MOVE_SELF");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_MOVE_SELF");
 				break;
 
 				/* Backing FS was unmounted */
 				case IN_UNMOUNT:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_UNMOUNT");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_UNMOUNT");
 				break;
 
 				/* Too many FS events were received without reading them
 				some event notifications were potentially lost.  */
 				case IN_Q_OVERFLOW:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_Q_OVERFLOW");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_Q_OVERFLOW");
 				break;
 
 				/* Watch was removed explicitly by inotify_rm_watch or automatically
 				because file was deleted, or file system was unmounted.  */
 				case IN_IGNORED:
-				// fprintf(stdout,"file:%s --- event:%s\n",event->name,"IN_IGNORED");
+				// LOGOUT("file:%s --- event:%s\n",event->name,"IN_IGNORED");
 				break;
 
 				/* Some unknown message received */
 				default:
-				fprintf(stdout,"file:%s --- event:%s\n","null","null");
+				LOGOUT("file:%s --- event:%s\n","null","null");
 				break;
 			}
 			/*for(i=0; i<EVENT_NUM; i++)
@@ -603,9 +619,9 @@ void * watchFile(void *s)
 				if((event->mask >> i) & 1)
 				{
 					if(event->len > 0)
-						fprintf(stdout, "%s --- %s\n", event->name, event_str[i]);
+						LOGOUT( "%s --- %s\n", event->name, event_str[i]);
 					else
-						fprintf(stdout, "%s --- %s\n", " ", event_str[i]);
+						LOGOUT( "%s --- %s\n", " ", event_str[i]);
 				}
 			}*/
 			nread = nread + sizeof(struct inotify_event) + event->len;
@@ -646,7 +662,7 @@ int exec_shell(char *shell_chars)
 		default :
 		break;
 	}
-	fprintf(stdout,"exec shell %s ,return %d \n",shell_chars,i);
+	LOGOUT("exec shell %s ,return %d \n",shell_chars,i);
 	return i;
 }
 
@@ -660,7 +676,7 @@ void  dtn2_send(char *destination_eid,char *local_eid,char *payload_path)
 	sprintf(cmd,"dtnsend -s %s -d %s -t f -p %s",local_eid,destination_eid,payload_path);
 	if(exec_shell(cmd)==0)
 	{
-		fprintf(stdout,"exec dtn2 send cmd successfully\n");
+		LOGOUT("exec dtn2 send cmd successfully\n");
 	}
 	return ;
 }
@@ -674,7 +690,7 @@ void bytewalla_send(char *destination_eid,char *local_eid,char *payload_path)
 	sprintf(cmd,"bytewallasend -d %s -t f -p %s",destination_eid,payload_path);
 	if(exec_shell(cmd)==0)
 	{
-		fprintf(stdout,"exec bytewalla send cmd successfully\n");
+		LOGOUT("exec bytewalla send cmd successfully\n");
 	}
 	return ;
 }
