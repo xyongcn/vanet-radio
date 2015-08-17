@@ -196,7 +196,9 @@ hg clone http://hg.code.sf.net/p/dtn/DTN2 dtn-DTN2
 
 加入
 src all http://iotdk.intel.com/repos/1.1/iotdk/all
+
 src x86 http://iotdk.intel.com/repos/1.1/iotdk/x86
+
 src i586 http://iotdk.intel.com/repos/1.1/iotdk/i586
 
 （4）连接网络，执行
