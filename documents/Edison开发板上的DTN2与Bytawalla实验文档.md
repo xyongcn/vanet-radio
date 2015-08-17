@@ -195,6 +195,7 @@ hg clone http://hg.code.sf.net/p/dtn/DTN2 dtn-DTN2
 （3）修改开发板系统中的/etc/opkg/base-feeds.conf文件
 
 加入
+
 src all http://iotdk.intel.com/repos/1.1/iotdk/all
 
 src x86 http://iotdk.intel.com/repos/1.1/iotdk/x86
