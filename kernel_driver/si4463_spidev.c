@@ -131,18 +131,27 @@ MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 
 #include <linux/semaphore.h> /* semphone for the TX */
 #include <linux/mutex.h>
+#include <linux/timer.h>
 /* semphone for the TX */
 //DEFINE_SEMAPHORE(sem_tx_complete);
 struct semaphore sem_tx_complete;
 //DEFINE_MUTEX(mutex_tx_complete);
 /* semphone for the SPI */
 //DEFINE_SEMAPHORE(sem_spi);
-DEFINE_MUTEX(mutex_spi);
+//DEFINE_MUTEX(mutex_spi);
 /* semphone for the irq */
 //DEFINE_SEMAPHORE(sem_irq);
 struct semaphore sem_irq;
-//DEFINE_MUTEX(mutex_irq);
+DEFINE_MUTEX(mutex_irq_handling);
 
+/* TX withdraw timer */
+struct timer_list tx_withdraw_timer;
+static bool tx_approved = 1;
+static void withdraw(unsigned long data)
+{
+	tx_approved = 1;
+    printk("tx is now approved\n");
+}
 
 #define IRQ_NET_CHIP  20//需要根据硬件确定
 
@@ -150,7 +159,14 @@ struct semaphore sem_irq;
 /* GLOBAL */
 static char  netbuffer[100];
 struct net_device *si4463_devs;
-struct net_device *tmp_devs;
+//struct net_device *tmp_devs;
+
+static bool isSending = 0;
+static bool isHandlingIrq = 0;
+//struct {
+//	bool flag;
+//	mutex_irq_handling
+//};
 
 struct spi_device *spi_save;
 struct spidev_data spidev_global;
@@ -167,40 +183,40 @@ static u8 tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x
 
 
 /* PIN MUX */
-#define pin_mux_num  25
-const char gpio_pin[pin_mux_num][4] = {
-		/*"111 ",*/
-		"115 ",
-		"114 ",
-		"109 ",
-		"214 ",
-
-		"263 ",
-		"240 ",
-		"262 ",
-		"241 ",
-		"242 ",
-		"243 ",
-		"258 ",
-		"259 ",
-		"260 ",
-		"261 ",
-		"226 ",
-		"227 ",
-		"228 ",
-		"229 ",
-
-		/*IO7 and IO8*/
-		"256 ",
-		"224 ",
-		"255 ",
-		"223 ",
-
-		/*IO6*/
-		"254 ",
-		"222 ",
-		"182 "
-};
+#define pin_mux_num  28
+//const char gpio_pin[pin_mux_num][4] = {
+//		/*"111 ",*/
+//		"115 ",
+//		"114 ",
+//		"109 ",
+//		"214 ",
+//
+//		"263 ",
+//		"240 ",
+//		"262 ",
+//		"241 ",
+//		"242 ",
+//		"243 ",
+//		"258 ",
+//		"259 ",
+//		"260 ",
+//		"261 ",
+//		"226 ",
+//		"227 ",
+//		"228 ",
+//		"229 ",
+//
+//		/*IO7 and IO8*/
+//		"256 ",
+//		"224 ",
+//		"255 ",
+//		"223 ",
+//
+//		/*IO6*/
+//		"254 ",
+//		"222 ",
+//		"182 "
+//};
 //#define pin_mux_num  26
 const struct gpio pin_mux[pin_mux_num] = {
 		/*{111, NULL, NULL},*/
@@ -223,6 +239,10 @@ const struct gpio pin_mux[pin_mux_num] = {
 		{227, GPIOF_DIR_IN, NULL},
 		{228, GPIOF_DIR_IN, NULL},
 		{229, GPIOF_DIR_IN, NULL},
+		/*IO9*/
+		{257, GPIOF_INIT_LOW, NULL},
+		{225, GPIOF_DIR_IN, NULL},
+		{183, GPIOF_DIR_IN, NULL},
 
 		/*IO7 and IO8*/
 		{256, GPIOF_INIT_HIGH, NULL},
@@ -271,14 +291,14 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 	message->complete = spidev_complete;
 	message->context = &done;
 
-	spin_lock_irq(&spidev->spi_lock);
+//	spin_lock_irq(&spidev->spi_lock);
 //	down(&sem_spi);
 //	mutex_lock(&mutex_spi);
 	if (spidev->spi == NULL)
 		status = -ESHUTDOWN;
 	else
 		status = spi_async(spidev->spi, message);
-	spin_unlock_irq(&spidev->spi_lock);
+//	spin_unlock_irq(&spidev->spi_lock);
 //	up(&sem_spi);
 //	mutex_unlock(&mutex_spi);
 
@@ -298,7 +318,7 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 inline ssize_t
 spidev_sync_transfer(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t len)
 {
-	mutex_lock(&mutex_spi);
+//	mutex_lock(&mutex_spi);
 	ssize_t ret;
 	struct spi_transfer	t = {
 			.tx_buf		= tx_buf,
@@ -311,14 +331,14 @@ spidev_sync_transfer(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t 
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
 	ret = spidev_sync(spidev, &m);
-	mutex_unlock(&mutex_spi);
+//	mutex_unlock(&mutex_spi);
 	return ret;
 }
 
 inline ssize_t
 spidev_sync_write(struct spidev_data *spidev,  size_t len)
 {
-	mutex_lock(&mutex_spi);
+//	mutex_lock(&mutex_spi);
 	ssize_t ret;
 	struct spi_transfer	t = {
 			.tx_buf		= spidev->buffer,
@@ -330,7 +350,7 @@ spidev_sync_write(struct spidev_data *spidev,  size_t len)
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
 	ret = spidev_sync(spidev, &m);
-	mutex_unlock(&mutex_spi);
+//	mutex_unlock(&mutex_spi);
 	return ret;
 }
 
@@ -352,7 +372,7 @@ spidev_sync_write(struct spidev_data *spidev,  size_t len)
 inline ssize_t
 spidev_sync_read(struct spidev_data *spidev, size_t len)
 {
-	mutex_lock(&mutex_spi);
+//	mutex_lock(&mutex_spi);
 	ssize_t ret;
 	struct spi_transfer	t = {
 			.rx_buf		= spidev->buffer,
@@ -364,7 +384,7 @@ spidev_sync_read(struct spidev_data *spidev, size_t len)
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
 	ret = spidev_sync(spidev, &m);
-	mutex_unlock(&mutex_spi);
+//	mutex_unlock(&mutex_spi);
 	return ret;
 }
 
@@ -922,8 +942,8 @@ static int spidev_probe(struct spi_device *spi)
 	 * 		IRQ??????
 	 */
 
-	spin_lock_irq(&spidev->spi_lock);
-	spin_unlock_irq(&spidev->spi_lock);
+//	spin_lock_irq(&spidev->spi_lock);
+//	spin_unlock_irq(&spidev->spi_lock);
 
 	if (spi == NULL)
 		return -ESHUTDOWN;
@@ -957,6 +977,12 @@ static int spidev_probe(struct spi_device *spi)
 //	//init_waitqueue_head(&spi_wait_queue);
 //	//cmd_queue_head = kmalloc(sizeof(struct cmd_queue), GFP_ATOMIC);
 //	//cmd_queue_head->count = 0;
+
+	/* setup timer */
+	setup_timer(&tx_withdraw_timer, withdraw, 0);
+	tx_withdraw_timer.expires = jiffies + 3 * HZ/1000; //jiffies + HZ/2 are 0.5s
+	tx_withdraw_timer.function = withdraw;
+	tx_withdraw_timer.data = 0;
 
 	return status;
 }
@@ -1016,14 +1042,14 @@ static struct spi_driver spidev_spi_driver = {
 
 void si4463_rx(struct net_device *dev, int len, unsigned char *buf)
 {
-	printk(KERN_ALERT "si4463_rx\n");
-
+//	printk(KERN_ALERT "si4463_rx\n");
+//	ppp(buf, len);
     struct sk_buff *skb;
     struct si4463_priv *priv = netdev_priv(dev);//(struct si4463_priv *) dev->priv;
 
     skb = dev_alloc_skb(len+2);
     if (!skb) {
-        printk("si4463_rx can not allocate more memory to store the packet. drop the packet\n");
+        printk(KERN_ALERT "si4463_rx can not allocate more memory to store the packet. drop the packet\n");
         priv->stats.rx_dropped++;
         return;
     }
@@ -1040,18 +1066,20 @@ void si4463_rx(struct net_device *dev, int len, unsigned char *buf)
     return;
 }
 static void irq_tx_complete() {
-	printk(KERN_ALERT "TX_COMPLETE\n");
+//
 	up(&sem_tx_complete);
+	isSending = 0;
+	printk(KERN_ALERT "TX_COMPLETE\n");
 //	mutex_unlock(&mutex_tx_complete);
 }
-static void irq_rx(void *dev_id){
+static void irq_rx(/*void *dev_id*/){
 	printk(KERN_ALERT "RECV\n");
-	tmp_devs = (struct net_device *) dev_id;
+//	tmp_devs = (struct net_device *) dev_id;
 	//cmd_queue_head->count++;
 	struct cmd cmd_;
 	cmd_.type = READFIFO_CMD;
 	//using the data field to store the net_devices point;
-	cmd_.data = dev_id;
+//	cmd_.data = dev_id;
 	cmd_.len = 4;
 	//insert_back(cmd_queue_head, &cmd_);
 //	rbuf_enqueue(&cmd_ringbuffer, &cmd_);
@@ -1060,9 +1088,14 @@ static void irq_rx(void *dev_id){
 }
 static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 {
+	isHandlingIrq = 1;
 
 	printk(KERN_ALERT "=====IRQ=====\n");
+//	printk(KERN_ALERT "sen_irq before: %d\n", sem_irq.count);
+	if(sem_irq.count > 0)
+		printk(KERN_ALERT "!!!!!!!!!sen_irq > 0\n");
 	up(&sem_irq);
+//	printk(KERN_ALERT "sen_irq after: %d\n", sem_irq.count);
 //	mutex_unlock(&mutex_irq);
 	return IRQ_HANDLED;
 }
@@ -1070,22 +1103,38 @@ static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 static int irq_handler(void* data){
 	bool tx_complete_flag;
 	bool rx_flag;
+	u8 ph_pend;
+	u8 md_status;
 
 	while(1/*!kthread_should_stop()*/) {
-
-		printk(KERN_ALERT "===irq_handler===\n");
 		tx_complete_flag = 0;
 		rx_flag = 0;
+		isHandlingIrq = 0;
 
 		down(&sem_irq);
-//		mutex_lock(&mutex_irq);
+//		mutex_lock(&mutex_irq_handling);
+//		printk(KERN_ALERT "===irq_handler===\n");
+
+
 		/*
 		 * read FRR_A for PH_STATUS_PEND (or status????)
 		 * 1, tx complete
 		 * 2, rx
 		 */
-		u8 ph_pend;
 		read_frr_a(&ph_pend);
+		printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
+		if(ph_pend==0 || ph_pend==0xff)
+			goto error;
+
+		/*
+		 * read FRR_B for md_status
+		 * this can be combined with frr_a
+		 */
+//		read_frr_b(&md_status);
+//		printk(KERN_ALERT "md_status: %x\n", md_status);
+//		if(md_status==0 || md_status==0xff)
+//			goto error;
+
 		//Check CRC error
 		//...
 		//
@@ -1097,11 +1146,27 @@ static int irq_handler(void* data){
 		}
 		//Check packet received
 		if((ph_pend & 0x10) == 0x10) {
-			irq_rx((void*)si4463_devs);
+			irq_rx();
 			rx_flag = 1;
 		}
+		printk(KERN_ALERT "tx_complete_flag: %d, isSending: %d\n",tx_complete_flag, isSending);
+	 	if (!tx_complete_flag && isSending) {
+	 		/* *
+	 		 * recv a packet when a sending is wait for complete.
+	 		 * the tx send complete irq	will be vanished
+	 		 * */
+	 		/*
+	 		 * SEND ERROR!!!!
+	 		 */
+	 		printk(KERN_ALERT "!!!!SEND ERROR!!!!\n");
+	 		tx_fifo_reset();
+	 		irq_tx_complete();
+	 		rx_start();
+	 	}
+	 	isHandlingIrq = 0;
+error:
 		//Clear IRQ, rx process will clear irq.
-		if(!rx_flag && tx_complete_flag){
+		if(!rx_flag && !tx_complete_flag){
 //			printk(KERN_ALERT "(((((((((((((((1)))))))))))))\n");
 //			get_interrupt_status();
 //			printk(KERN_ALERT "(((((((((((((((2)))))))))))))\n");
@@ -1109,30 +1174,78 @@ static int irq_handler(void* data){
 //			printk(KERN_ALERT "(((((((((((((((3)))))))))))))\n");
 //			get_interrupt_status();
 //			printk(KERN_ALERT "(((((((((((((((4)))))))))))))\n");
-//			clr_interrupt();
+			printk(KERN_ALERT "interrupt_status:::\n");
+			get_interrupt_status();
+//			printk(KERN_ALERT "PH_status:::\n");
+//			read_frr_a(&ph_pend);
+//			printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
+//			set_frr_ctl();
+//			read_frr_a(&ph_pend);
+//			printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
+			clr_interrupt();
 		}
+		isHandlingIrq = 0;
+//		mutex_unlock(&mutex_irq_handling);
 	}
 	return -1;
 }
 
 static int cmd_queue_handler(void *data){
 	struct cmd *cmd_;
-	u8 tmp[64];
+	u8 tmp_len;
+	u8 tmp[10];
+	u8 rx[64];
+	u8 padding[64];
+	u8 rssi;
+	memset(padding, 0, 64);
 	while(1/*!kthread_should_stop()*/){
-		printk(KERN_ALERT "cmd_queue_handler:1\n");
-
+//		printk(KERN_ALERT "cmd_queue_handler:1\n");
+		if(isHandlingIrq) {
+			mdelay(2);
+			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
+			continue;
+//			mutex_lock(&mutex_irq_handling);
+		}
 		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
+//		mutex_unlock(&mutex_irq_handling);
 		switch(cmd_->type){
 		case READFIFO_CMD:
 			printk(KERN_ALERT "+++++++++++++++++++++++++++READFIFO_CMD+++++++++++++++++++++++++++\n");
-			spi_read_fifo(tmp, 64);
-			ppp(tmp, 64);
+//			u16 len = get_packet_info();
+//			printk(KERN_ALERT "PACKET LEN: %d\n", len);
+
+			get_fifo_info(tmp);
+			printk(KERN_ALERT "FIFO: %d, %d, GPIO1:%d\n", tmp[1], tmp[2], get_CCA_latch());
+//
+//			printk(KERN_ALERT "rssi: %x\n", rssi);
+
+
+			if(tmp[1]!=64){
+				/*
+				 * recv error
+				 */
+				fifo_reset();
+				clr_packet_rx_pend();
+				break;
+			}
+
+			spi_read_fifo(rx, 64);
+//			ppp(tmp, 64);
 		    //get data from hardware register
-			si4463_rx(tmp_devs,64,tmp);
-//			clr_interrupt();
+			tmp_len = rx[0];
+			printk(KERN_ALERT "Len: %d\n", tmp_len);
 			clr_packet_rx_pend();
+			si4463_rx(si4463_devs,rx[0],rx+1);
+//			clr_interrupt();
+
+
 			break;
 		case SEND_CMD:
+			if(!tx_approved){
+				rbuf_enqueue(&cmd_ringbuffer, cmd_);
+				printk(KERN_ALERT "tx isn't approved!\n");
+				break;
+			}
 			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
 			//enable_tx_interrupt();
 
@@ -1140,12 +1253,51 @@ static int cmd_queue_handler(void *data){
 //			printk(KERN_ALERT "Before: \n");
 //			get_fifo_info();
 //			get_interrupt_status();
-			spi_write_fifo(cmd_->data, cmd_->len);
+//			get_fifo_info(tmp);
+//			printk(KERN_ALERT "When Sending, FIFO: %d, %d, GPIO1:%d\n", tmp[1], tmp[2], get_CCA_latch());
+
+
+			get_modem_status(tmp);
+			rssi = tmp[2] & 0x08;
+			printk(KERN_ALERT "rssi: %x\n", rssi);
+			if(isHandlingIrq || rssi!=0 || rbuf_peep_first_isREADCMD(&cmd_ringbuffer)){
+				/*
+				 * we cannot send when receiving.
+				 */
+				rbuf_enqueue(&cmd_ringbuffer, cmd_);
+				printk(KERN_ALERT "BREAK!!!\n");
+				tx_approved = 0;
+				add_timer(&tx_withdraw_timer);
+				break;
+			}
+
+
+			change_state2tx_tune();
+			isSending = 1;
+
+			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", cmd_->len);
 //			printk(KERN_ALERT "Writing: \n");
 //			get_fifo_info();
 //			get_interrupt_status();
+//			printk(KERN_ALERT "NIRQ before: %d\n", gpio_get_value(NIRQ));
+
+//			tx_change_variable_len(cmd_->len);
+			tmp_len = cmd_->len;
+			if(tmp_len > 50) {
+				cmd_->data[0] = 0x18;
+				cmd_->data[1] = 0x02;
+				cmd_->data[2] = 0x03;
+				cmd_->data[3] = 0x04;
+				cmd_->data[4] = 0x05;
+				cmd_->data[5] = 0x06;
+			}
+			spi_write_fifo(&tmp_len, 1);
+			spi_write_fifo(cmd_->data, cmd_->len);
+			if((cmd_->len + 1) < 64)
+				spi_write_fifo(padding, 64-cmd_->len-1);
+//			ppp(cmd_->data, cmd_->len);
+//			printk(KERN_ALERT "NIRQ after: %d\n", gpio_get_value(NIRQ));
 			tx_start();
-//			mdelay(1300);
 			//semaphore
 			down(&sem_tx_complete);
 //			mutex_lock(&mutex_tx_complete);
@@ -1187,44 +1339,44 @@ static void write2file(struct file *fp, const char *write_str, int len) {
 
     set_fs(fs);
 }
-int set_pinmux_test(){
-	/* PIN MUX */
-	#define pin_mux_num  26
-	const struct gpio pin_mux[pin_mux_num] = {
-			{111, NULL, NULL},
-			{115, NULL, NULL},
-			{114, NULL, NULL},
-			{109, NULL, NULL},
-			{214, GPIOF_INIT_LOW, NULL},
-
-			{263, GPIOF_INIT_HIGH, NULL},
-			{240, GPIOF_INIT_HIGH, NULL},
-			{262, GPIOF_INIT_HIGH, NULL},
-			{241, GPIOF_INIT_HIGH, NULL},
-			{242, GPIOF_INIT_HIGH, NULL},
-			{243, GPIOF_INIT_HIGH, NULL},
-			{258, GPIOF_INIT_HIGH, NULL},
-			{259, GPIOF_INIT_HIGH, NULL},
-			{260, GPIOF_INIT_LOW, NULL},
-			{261, GPIOF_INIT_HIGH, NULL},
-			{226, GPIOF_DIR_IN, NULL},
-			{227, GPIOF_DIR_IN, NULL},
-			{228, GPIOF_DIR_IN, NULL},
-			{229, GPIOF_DIR_IN, NULL},
-
-			/*IO7 and IO8*/
-			{256, GPIOF_INIT_HIGH, NULL},
-			{224, GPIOF_DIR_IN, NULL},
-			{255, GPIOF_INIT_HIGH, NULL},
-			{223, GPIOF_DIR_IN, NULL},
-
-			/*IO6*/
-			{254, GPIOF_INIT_LOW, NULL},
-			{222, GPIOF_DIR_IN, NULL},
-			{182, GPIOF_DIR_IN, NULL}
-	};
-
-}
+//int set_pinmux_test(){
+//	/* PIN MUX */
+//	#define pin_mux_num  26
+//	const struct gpio pin_mux[pin_mux_num] = {
+//			{111, NULL, NULL},
+//			{115, NULL, NULL},
+//			{114, NULL, NULL},
+//			{109, NULL, NULL},
+//			{214, GPIOF_INIT_LOW, NULL},
+//
+//			{263, GPIOF_INIT_HIGH, NULL},
+//			{240, GPIOF_INIT_HIGH, NULL},
+//			{262, GPIOF_INIT_HIGH, NULL},
+//			{241, GPIOF_INIT_HIGH, NULL},
+//			{242, GPIOF_INIT_HIGH, NULL},
+//			{243, GPIOF_INIT_HIGH, NULL},
+//			{258, GPIOF_INIT_HIGH, NULL},
+//			{259, GPIOF_INIT_HIGH, NULL},
+//			{260, GPIOF_INIT_LOW, NULL},
+//			{261, GPIOF_INIT_HIGH, NULL},
+//			{226, GPIOF_DIR_IN, NULL},
+//			{227, GPIOF_DIR_IN, NULL},
+//			{228, GPIOF_DIR_IN, NULL},
+//			{229, GPIOF_DIR_IN, NULL},
+//
+//			/*IO7 and IO8*/
+//			{256, GPIOF_INIT_HIGH, NULL},
+//			{224, GPIOF_DIR_IN, NULL},
+//			{255, GPIOF_INIT_HIGH, NULL},
+//			{223, GPIOF_DIR_IN, NULL},
+//
+//			/*IO6*/
+//			{254, GPIOF_INIT_LOW, NULL},
+//			{222, GPIOF_DIR_IN, NULL},
+//			{182, GPIOF_DIR_IN, NULL}
+//	};
+//
+//}
 int set_pinmux(){
 
 
@@ -1262,6 +1414,10 @@ int set_pinmux(){
 	ret = gpio_export(228, 1);
 	ret = gpio_export(229, 1);
 	ret = gpio_export(214, 1);
+	/* IO9 */
+	ret = gpio_export(183, 1);
+	ret = gpio_export(257, 1);
+	ret = gpio_export(225, 1);
 	/* IO7,8 */
 	ret = gpio_export(256, 1);
 	ret = gpio_export(224, 1);
@@ -1285,6 +1441,15 @@ int set_pinmux(){
 	/* TRI_STATE_ALL */
     fp = filp_open("/sys/class/gpio/gpio214/direction", O_RDWR, 0);
     write2file(fp, s_low, 3);
+    /* IO9 */
+    fp = filp_open("/sys/kernel/debug/gpio_debug/gpio183/current_pinmux", O_RDWR, 0);
+    write2file(fp, s_mode0, 5);
+    fp = filp_open("/sys/class/gpio/gpio257/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+    fp = filp_open("/sys/class/gpio/gpio225/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio183/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
 	/* IO7,8 */
     fp = filp_open("/sys/class/gpio/gpio256/direction", O_RDWR, 0);
     write2file(fp, s_high, 4);
@@ -1448,23 +1613,23 @@ int si4463_open(struct net_device *dev)
 
 	tmp = ~SPI_MODE_MASK;
 
-	printk(KERN_ALERT "init: tmp= %x\n", tmp);
-	tmp |= SPI_MODE_0;
-	//tmp |= SPI_NO_CS;
-	//tmp |= SPI_CS_HIGH;
-	//tmp |= SPI_READY;
-	printk(KERN_ALERT "midd: tmp= %x\n", tmp);
-	tmp |= spi_save->mode & ~SPI_MODE_MASK;
-	printk(KERN_ALERT "after: tmp= %x\n", tmp);
-	spi_save->mode = (u8)tmp;
-	spi_save->bits_per_word = BITS_PER_WORD;
-	spi_save->max_speed_hz = SPI_SPEED;
-
-	ret = spi_setup(spi_save);
-	if (ret < 0)
-		printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
-	else
-		printk(KERN_ALERT "spi_setup succeed\n");
+//	printk(KERN_ALERT "init: tmp= %x\n", tmp);
+//	tmp |= SPI_MODE_0;
+//	//tmp |= SPI_NO_CS;
+//	//tmp |= SPI_CS_HIGH;
+//	//tmp |= SPI_READY;
+//	printk(KERN_ALERT "midd: tmp= %x\n", tmp);
+//	tmp |= spi_save->mode & ~SPI_MODE_MASK;
+//	printk(KERN_ALERT "after: tmp= %x\n", tmp);
+//	spi_save->mode = (u8)tmp;
+//	spi_save->bits_per_word = BITS_PER_WORD;
+//	spi_save->max_speed_hz = SPI_SPEED;
+//
+//	ret = spi_setup(spi_save);
+//	if (ret < 0)
+//		printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
+//	else
+//		printk(KERN_ALERT "spi_setup succeed\n");
 
 	/* Waiting Queue */
 	//init_waitqueue_head(&spi_wait_queue);
@@ -1479,13 +1644,15 @@ int si4463_open(struct net_device *dev)
 	//getCTS();
 	reset();
 
-	si4463_init();
+//	si4463_register_init();
+	setRFParameters();
+//	Function_set_tran_property();
 	fifo_reset();
 
 	/*RX*/
 	//printk(KERN_ALERT "RXXXXXXXXXXX\n");
 //	enable_rx_interrupt();
-	enable_chip_irq();
+//	enable_chip_irq();
 	//printk(KERN_ALERT "enable_rx_interrupt\n");
 	clr_interrupt();
 	//printk(KERN_ALERT "clr_interrupt\n");
@@ -1567,8 +1734,9 @@ int si4463_release(struct net_device *dev)
  * ed_tx device.
  */
 
-void si4463_hw_tx(char *buf, int len, struct net_device *dev)
+void si4463_hw_tx(char *buf, u16 len, struct net_device *dev)
 {
+//	int i;
 	//printk("si4463_hw_tx\n");
     struct si4463_priv *priv;
 
@@ -1583,18 +1751,21 @@ void si4463_hw_tx(char *buf, int len, struct net_device *dev)
     priv->stats.tx_packets++;
     priv->stats.rx_bytes += len;
 
-    /* remember to free the sk_buffer allocated in upper layer. */
-    dev_kfree_skb(priv->skb);
-
 //    ppp(buf, len);
 
 	struct cmd cmd_;
 	cmd_.type = SEND_CMD;
-	cmd_.data = buf;//tx_ph_data;
-	//if (len > 64)
-		len = 64;
-	cmd_.len = len;//19;
-	rbuf_enqueue(&cmd_ringbuffer, &cmd_);
+	cmd_.data = buf;//the memcpy will be ran in the enqueue.
+
+	if (len >= 64)
+		goto out;
+	cmd_.len =  len;//19;
+
+	rbuf_enqueue(&cmd_ringbuffer, &cmd_);//must before the kfree
+out:
+    /* remember to free the sk_buffer allocated in upper layer. */
+    dev_kfree_skb(priv->skb);
+
 
 }
 
@@ -1605,13 +1776,14 @@ void si4463_hw_tx(char *buf, int len, struct net_device *dev)
 
 int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 {
-	printk(KERN_ALERT "si4463_tx\n");
+//	printk(KERN_ALERT "si4463_tx\n");
     int len;
     u8 *data;
     struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
 
-    len = skb->len < ETH_ZLEN ? ETH_ZLEN : skb->len;
+    len = skb->len;// < ETH_ZLEN ? ETH_ZLEN : skb->len;
 
+//    printk(KERN_ALERT "LEN: skb->len[%d], len[%d]\n", skb->len, len);
 
     data = skb->data;
 
@@ -1623,7 +1795,7 @@ int si4463_tx(struct sk_buff *skb, struct net_device *dev)
     priv->skb = skb;
 
     /* pseudo transmit the packet,hehe */
-    si4463_hw_tx(data, len, dev);
+    si4463_hw_tx(data, (u16)len, dev);
 
     return 0;
 }
@@ -1691,13 +1863,31 @@ static const struct net_device_ops my_netdev_ops = {
 	.ndo_tx_timeout      = si4463_tx_timeout,
 };
 
+//static void si4463_net_dev_setup(struct net_device *dev)
+//{
+//	dev->header_ops		= &eth_header_ops;
+//	dev->type		= ARPHRD_ETHER;
+//	dev->hard_header_len 	= ETH_HLEN;
+//	dev->mtu		= 64;
+//	dev->addr_len		= ETH_ALEN;
+//	dev->tx_queue_len	= 1000;	/* Ethernet wants good queues */
+//	dev->flags		= IFF_BROADCAST|IFF_MULTICAST;
+//	dev->priv_flags		|= IFF_TX_SKB_SHARING;
+//
+//	memset(dev->broadcast, 0xFF, ETH_ALEN);
+//
+//}
+
 void si4463_net_init(struct net_device *dev)
 {
 
 	struct si4463_priv *priv;
 	ether_setup(dev); /* assign some of the fields */
+//	si4463_net_dev_setup(dev);
 
 	dev->netdev_ops = &my_netdev_ops;
+	//MTU
+	dev->mtu		= 50;
 
 	dev->dev_addr[0] = 0x18;//(0x01 & addr[0])为multicast
 	dev->dev_addr[1] = 0x02;
@@ -1779,6 +1969,7 @@ static void __exit spidev_exit(void)
 		unregister_netdev(si4463_devs);
 		free_netdev(si4463_devs);
 	}
+	del_timer(&tx_withdraw_timer);
 	return;
 }
 module_exit(spidev_exit);

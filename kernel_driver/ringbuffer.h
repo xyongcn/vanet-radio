@@ -8,8 +8,8 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 
-#define RBUF_MAX 40
-#define MAXSIZE_PER_CMD 20
+#define RBUF_MAX 100
+#define MAXSIZE_PER_CMD 64
 
 struct cmd {
 #define READFIFO_CMD	1
@@ -17,8 +17,8 @@ struct cmd {
 #define OTHER_CMD		55
 	int type;
 	u8 * data;
-	int len;
-	struct cmd *next;
+	u16 len;
+//	struct cmd *next;
 };
 
 typedef struct _rbuf
@@ -60,5 +60,7 @@ bool rbuf_empty(rbuf_t *rb);
 int rbuf_capacity(rbuf_t *rb);
 
 int rbuf_len(rbuf_t *rb);
+
+bool rbuf_peep_first_isREADCMD(rbuf_t *rb);
 
 #endif

@@ -33,17 +33,27 @@ void rbuf_destroy(rbuf_t *c)
 }
 
 void copy_cmd(struct cmd *dest, struct cmd *src){
-	dest->data = src->data;
+//	dest->data = src->data;
+	memcpy(dest->data, src->data, src->len);
+	int i;
+	for(i=0; i<src->len; i++)
+		dest->data[i] = src->data[i];
 	dest->len = src->len;
 	dest->type = src->type;
-	dest->next = src->next;
+//	dest->next = src->next;
+}
+
+void copy_cmd_without_dataField(struct cmd *dest, struct cmd *src) {
+	dest->len = src->len;
+	dest->type = src->type;
+//	dest->next = src->next;
 }
 
 /* 压入数据 */
 int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_)
 {
 	printk(KERN_ALERT "rbuf_enqueue\n");
-	int ret = 0;
+//	int ret;
 	//ppp(cmd_->data, cmd_->len);
 
 	if (rbuf_full(rb))
@@ -61,7 +71,7 @@ int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_)
 
 	spin_unlock(&rb->lock);
 	wake_up_interruptible(&rb->wait_isempty);
-	return ret;
+	return 0;
 }
 
 /* 压入数据
@@ -69,9 +79,9 @@ int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_)
  * */
 int rbuf_insert_readcmd(rbuf_t *rb, struct cmd *cmd_)
 {
-	printk(KERN_ALERT "rbuf_insert_before_readcmd\n");
-	int ret = 0;
-	int tmp;
+	printk(KERN_ALERT "rbuf_insert_readcmd\n");
+//	int ret;
+//	int tmp;
 	//ppp(cmd_->data, cmd_->len);
 
 	if (rbuf_full(rb))
@@ -82,22 +92,21 @@ int rbuf_insert_readcmd(rbuf_t *rb, struct cmd *cmd_)
 
 	spin_lock(&rb->lock);
 	rb->next_out = (rb->next_out - 1) % rb->capacity;
-	copy_cmd(&(rb->data[rb->next_out]), cmd_);
+//	copy_cmd(&(rb->data[rb->next_out]), cmd_);
+	copy_cmd_without_dataField(&(rb->data[rb->next_out]), cmd_);
 	rb->size++;
-
-	//ppp(rb->data[rb->next_in-1].data, rb->data[rb->next_in-1].data)
-
 	spin_unlock(&rb->lock);
+
 	wake_up_interruptible(&rb->wait_isempty);
-	return ret;
+	return 0;
 }
 
 /* 取出数据 */
 struct cmd* rbuf_dequeue(rbuf_t *rb)
 {
 	printk(KERN_ALERT "rbuf_dequeue\n");
-	struct cmd *cmd_ = NULL;
-	int ret = 0;
+	struct cmd *cmd_;
+//	int ret = 0;
 
 	if (rbuf_empty(rb))
 	{
@@ -137,4 +146,21 @@ int rbuf_capacity(rbuf_t *c)
 int rbuf_len(rbuf_t *c)
 {
 	return c->size;
+}
+
+bool rbuf_peep_first_isREADCMD(rbuf_t *rb)
+{
+	struct cmd *cmd_;
+//	int ret = 0;
+
+	if (rbuf_empty(rb))
+	{
+		printk(KERN_ALERT "peep: ringbuffer is EMPTY!\n");
+		return 0;
+	}
+	spin_lock(&rb->lock);
+	cmd_ = &rb->data[rb->next_out];
+
+	spin_unlock(&rb->lock);
+	return (cmd_->type == READFIFO_CMD) ? 1 : 0;;
 }

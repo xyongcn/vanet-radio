@@ -30,39 +30,39 @@
 #define READ_RX_FIFO                    0x77
 #define START_MFSK                      0x35
 #define RX_HOP                          0x36
-
-const unsigned char RF_MODEM_CLKGEN_BAND_1_data[] = { RF_MODEM_CLKGEN_BAND_1 };
-const unsigned char RF_FREQ_CONTROL_INTE_8_data[] = { RF_FREQ_CONTROL_INTE_8 };
-const unsigned char RF_POWER_UP_data[] = { RF_POWER_UP };
-const unsigned char RF_GPIO_PIN_CFG_data[] = { RF_GPIO_PIN_CFG };
-const unsigned char RF_GLOBAL_XO_TUNE_1_data[] = { RF_GLOBAL_XO_TUNE_1 };
-const unsigned char RF_GLOBAL_CONFIG_1_data[] = { RF_GLOBAL_CONFIG_1 };
-const unsigned char RF_FRR_CTL_A_MODE_4_data[] = { RF_FRR_CTL_A_MODE_4 };
-const unsigned char RF_PREAMBLE_TX_LENGTH_9_data[] = { RF_PREAMBLE_TX_LENGTH_9 };
-const unsigned char RF_SYNC_CONFIG_5_data[] = { RF_SYNC_CONFIG_5 };
-const unsigned char RF_PKT_CRC_CONFIG_1_data[] = { RF_PKT_CRC_CONFIG_1 };
-const unsigned char RF_PKT_CONFIG1_1_data[] = { RF_PKT_CONFIG1_1 };
-const unsigned char RF_PKT_LEN_3_data[] = { RF_PKT_LEN_3 };
-const unsigned char RF_PKT_FIELD_1_LENGTH_12_8_12_data[] = {
-		RF_PKT_FIELD_1_LENGTH_12_8_12 };
-const unsigned char RF_PKT_FIELD_4_LENGTH_12_8_8_data[] = {
-		RF_PKT_FIELD_4_LENGTH_12_8_8 };
-const unsigned char RF_MODEM_FREQ_DEV_0_1_data[] = { RF_MODEM_FREQ_DEV_0_1 };
-const unsigned char RF_MODEM_AGC_CONTROL_1_data[] = { RF_MODEM_AGC_CONTROL_1 };
-const unsigned char RF_MATCH_VALUE_1_12_data[] = { RF_MATCH_VALUE_1_12 };
-const unsigned char RF_MODEM_RSSI_COMP_1_data[] = { RF_MODEM_RSSI_COMP_1 };
-const unsigned char RF_MODEM_MOD_TYPE_12_data[] = { RF_MODEM_MOD_TYPE_12 };
-const unsigned char RF_MODEM_TX_RAMP_DELAY_8_data[] =
-		{ RF_MODEM_TX_RAMP_DELAY_8 };
-const unsigned char RF_MODEM_BCR_OSR_1_9_data[] = { RF_MODEM_BCR_OSR_1_9 };
-const unsigned char RF_MODEM_AFC_GEAR_7_data[] = { RF_MODEM_AFC_GEAR_7 };
-const unsigned char RF_MODEM_AGC_WINDOW_SIZE_9_data[] = {
-		RF_MODEM_AGC_WINDOW_SIZE_9 };
-const unsigned char RF_MODEM_OOK_CNT1_11_data[] = { RF_MODEM_OOK_CNT1_11 };
-const unsigned char RF_MODEM_CHFLT_RX1_CHFLT_COE13_7_0_12_data[] = {
-		RF_MODEM_CHFLT_RX1_CHFLT_COE13_7_0_12 };
-const unsigned char RF_MODEM_CHFLT_RX1_CHFLT_COE1_7_0_12_data[] = {
-		RF_MODEM_CHFLT_RX1_CHFLT_COE1_7_0_12 };
-const unsigned char RF_MODEM_CHFLT_RX2_CHFLT_COE7_7_0_12_data[] = {
-		RF_MODEM_CHFLT_RX2_CHFLT_COE7_7_0_12 };
-const unsigned char RF_SYNTH_PFDCP_CPFF_7_data[] = { RF_SYNTH_PFDCP_CPFF_7 };
+//
+//const unsigned char RF_MODEM_CLKGEN_BAND_1_data[] = { RF_MODEM_CLKGEN_BAND_1 };
+//const unsigned char RF_FREQ_CONTROL_INTE_8_data[] = { RF_FREQ_CONTROL_INTE_8 };
+//const unsigned char RF_POWER_UP_data[] = { RF_POWER_UP };
+//const unsigned char RF_GPIO_PIN_CFG_data[] = { RF_GPIO_PIN_CFG };
+//const unsigned char RF_GLOBAL_XO_TUNE_1_data[] = { RF_GLOBAL_XO_TUNE_1 };
+//const unsigned char RF_GLOBAL_CONFIG_1_data[] = { RF_GLOBAL_CONFIG_1 };
+//const unsigned char RF_FRR_CTL_A_MODE_4_data[] = { RF_FRR_CTL_A_MODE_4 };
+//const unsigned char RF_PREAMBLE_TX_LENGTH_9_data[] = { RF_PREAMBLE_TX_LENGTH_9 };
+//const unsigned char RF_SYNC_CONFIG_5_data[] = { RF_SYNC_CONFIG_5 };
+//const unsigned char RF_PKT_CRC_CONFIG_1_data[] = { RF_PKT_CRC_CONFIG_1 };
+//const unsigned char RF_PKT_CONFIG1_1_data[] = { RF_PKT_CONFIG1_1 };
+//const unsigned char RF_PKT_LEN_3_data[] = { RF_PKT_LEN_3 };
+//const unsigned char RF_PKT_FIELD_1_LENGTH_12_8_12_data[] = {
+//		RF_PKT_FIELD_1_LENGTH_12_8_12 };
+//const unsigned char RF_PKT_FIELD_4_LENGTH_12_8_8_data[] = {
+//		RF_PKT_FIELD_4_LENGTH_12_8_8 };
+//const unsigned char RF_MODEM_FREQ_DEV_0_1_data[] = { RF_MODEM_FREQ_DEV_0_1 };
+//const unsigned char RF_MODEM_AGC_CONTROL_1_data[] = { RF_MODEM_AGC_CONTROL_1 };
+//const unsigned char RF_MATCH_VALUE_1_12_data[] = { RF_MATCH_VALUE_1_12 };
+//const unsigned char RF_MODEM_RSSI_COMP_1_data[] = { RF_MODEM_RSSI_COMP_1 };
+//const unsigned char RF_MODEM_MOD_TYPE_12_data[] = { RF_MODEM_MOD_TYPE_12 };
+//const unsigned char RF_MODEM_TX_RAMP_DELAY_8_data[] =
+//		{ RF_MODEM_TX_RAMP_DELAY_8 };
+//const unsigned char RF_MODEM_BCR_OSR_1_9_data[] = { RF_MODEM_BCR_OSR_1_9 };
+//const unsigned char RF_MODEM_AFC_GEAR_7_data[] = { RF_MODEM_AFC_GEAR_7 };
+//const unsigned char RF_MODEM_AGC_WINDOW_SIZE_9_data[] = {
+//		RF_MODEM_AGC_WINDOW_SIZE_9 };
+//const unsigned char RF_MODEM_OOK_CNT1_11_data[] = { RF_MODEM_OOK_CNT1_11 };
+//const unsigned char RF_MODEM_CHFLT_RX1_CHFLT_COE13_7_0_12_data[] = {
+//		RF_MODEM_CHFLT_RX1_CHFLT_COE13_7_0_12 };
+//const unsigned char RF_MODEM_CHFLT_RX1_CHFLT_COE1_7_0_12_data[] = {
+//		RF_MODEM_CHFLT_RX1_CHFLT_COE1_7_0_12 };
+//const unsigned char RF_MODEM_CHFLT_RX2_CHFLT_COE7_7_0_12_data[] = {
+//		RF_MODEM_CHFLT_RX2_CHFLT_COE7_7_0_12 };
+//const unsigned char RF_SYNTH_PFDCP_CPFF_7_data[] = { RF_SYNTH_PFDCP_CPFF_7 };
