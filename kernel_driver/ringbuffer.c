@@ -34,7 +34,7 @@ void rbuf_destroy(rbuf_t *c)
 
 void copy_cmd(struct cmd *dest, struct cmd *src){
 //	dest->data = src->data;
-	memcpy(dest->data, src->data, src->len);
+//	memcpy(dest->data, src->data, src->len);
 	int i;
 	for(i=0; i<src->len; i++)
 		dest->data[i] = src->data[i];
@@ -75,9 +75,9 @@ int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_)
 }
 
 /* 压入数据
- * read cmd must be dealed first!
+ * read cmd must be done first!
  * */
-int rbuf_insert_readcmd(rbuf_t *rb, struct cmd *cmd_)
+int rbuf_insert_readcmd(rbuf_t *rb)
 {
 	printk(KERN_ALERT "rbuf_insert_readcmd\n");
 //	int ret;
@@ -90,10 +90,30 @@ int rbuf_insert_readcmd(rbuf_t *rb, struct cmd *cmd_)
 		wait_event_interruptible(rb->wait_isfull, !rbuf_full(rb));
 	}
 
+	if (rbuf_empty(rb))
+	{
+		spin_lock(&rb->lock);
+		rb->data[rb->next_in].type = READFIFO_CMD;
+		rb->data[rb->next_in].len = 4;
+		rb->next_in++;
+		rb->size++;
+		rb->next_in %= rb->capacity;
+
+		//ppp(rb->data[rb->next_in-1].data, rb->data[rb->next_in-1].data)
+
+		spin_unlock(&rb->lock);
+		wake_up_interruptible(&rb->wait_isempty);
+		return 0;
+	}
+
 	spin_lock(&rb->lock);
 	rb->next_out = (rb->next_out - 1) % rb->capacity;
 //	copy_cmd(&(rb->data[rb->next_out]), cmd_);
-	copy_cmd_without_dataField(&(rb->data[rb->next_out]), cmd_);
+//	copy_cmd_without_dataField(&(rb->data[rb->next_out]), cmd_);
+
+	rb->data[rb->next_out].type = READFIFO_CMD;
+	rb->data[rb->next_out].len = 4;
+
 	rb->size++;
 	spin_unlock(&rb->lock);
 
@@ -110,7 +130,7 @@ struct cmd* rbuf_dequeue(rbuf_t *rb)
 
 	if (rbuf_empty(rb))
 	{
-		//printk(KERN_ALERT "ringbuffer is EMPTY!\n");
+		printk(KERN_ALERT "ringbuffer is EMPTY!\n");
 		wait_event_interruptible(rb->wait_isempty, !rbuf_empty(rb));
 	}
 
@@ -163,4 +183,12 @@ bool rbuf_peep_first_isREADCMD(rbuf_t *rb)
 
 	spin_unlock(&rb->lock);
 	return (cmd_->type == READFIFO_CMD) ? 1 : 0;;
+}
+
+void rbuf_print_status(rbuf_t *rb) {
+	spin_lock(&rb->lock);
+	printk(KERN_ALERT "next_in: %d\n", rb->next_in);
+	printk(KERN_ALERT "next_out %d\n", rb->next_out);
+	spin_unlock(&rb->lock);
+//	printk(KERN_ALERT "", );
 }

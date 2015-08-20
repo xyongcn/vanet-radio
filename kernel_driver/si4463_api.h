@@ -37,6 +37,7 @@ void Function_set_tran_property();
 void clr_interrupt(void);
 void clr_packet_sent_pend(void);
 void clr_packet_rx_pend(void);
+void clr_preamble_detect_pend(void);
 //void clr_interrupt_async(void);
 
 void enable_chip_irq(void);
@@ -57,6 +58,7 @@ void get_ph_status(u8 *rx);
 void get_modem_status(u8 *rx);
 void get_fifo_info(u8 * rx);
 int get_CCA_latch(void);
+bool get_CCA(void);
 void get_interrupt_status(void);
 
 

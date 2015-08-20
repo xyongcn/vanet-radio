@@ -163,6 +163,7 @@ struct net_device *si4463_devs;
 
 static bool isSending = 0;
 static bool isHandlingIrq = 0;
+static bool preamble_detect = 0;
 //struct {
 //	bool flag;
 //	mutex_irq_handling
@@ -980,7 +981,7 @@ static int spidev_probe(struct spi_device *spi)
 
 	/* setup timer */
 	setup_timer(&tx_withdraw_timer, withdraw, 0);
-	tx_withdraw_timer.expires = jiffies + 3 * HZ/1000; //jiffies + HZ/2 are 0.5s
+	tx_withdraw_timer.expires = jiffies + 4 * HZ/1000; //jiffies + HZ/2 are 0.5s
 	tx_withdraw_timer.function = withdraw;
 	tx_withdraw_timer.data = 0;
 
@@ -1076,14 +1077,14 @@ static void irq_rx(/*void *dev_id*/){
 	printk(KERN_ALERT "RECV\n");
 //	tmp_devs = (struct net_device *) dev_id;
 	//cmd_queue_head->count++;
-	struct cmd cmd_;
-	cmd_.type = READFIFO_CMD;
-	//using the data field to store the net_devices point;
-//	cmd_.data = dev_id;
-	cmd_.len = 4;
+//	struct cmd cmd_;
+//	cmd_.type = READFIFO_CMD;
+//	//using the data field to store the net_devices point;
+//	cmd_.data = 0x00;
+//	cmd_.len = 4;
 	//insert_back(cmd_queue_head, &cmd_);
 //	rbuf_enqueue(&cmd_ringbuffer, &cmd_);
-	rbuf_insert_readcmd(&cmd_ringbuffer, &cmd_);
+	rbuf_insert_readcmd(&cmd_ringbuffer);
 	//wake_up_interruptible(&spi_wait_queue);
 }
 static irqreturn_t si4463_interrupt (int irq, void *dev_id)
@@ -1123,8 +1124,8 @@ static int irq_handler(void* data){
 		 */
 		read_frr_a(&ph_pend);
 		printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
-		if(ph_pend==0 || ph_pend==0xff)
-			goto error;
+//		if(ph_pend==0 || ph_pend==0xff)
+//			goto error;
 
 		/*
 		 * read FRR_B for md_status
@@ -1132,13 +1133,19 @@ static int irq_handler(void* data){
 		 */
 //		read_frr_b(&md_status);
 //		printk(KERN_ALERT "md_status: %x\n", md_status);
-//		if(md_status==0 || md_status==0xff)
+//
+//		if((md_status==0 || md_status==0xff) && (ph_pend==0 || ph_pend==0xff))
 //			goto error;
 
 		//Check CRC error
 		//...
 		//
 
+		//Check preamble
+//		if((md_status & 0x02) == 0x02) {
+//			preamble_detect = 1;
+//			clr_preamble_detect_pend();
+//		}
 		//Check Tx complete
 		if((ph_pend & 0x20) == 0x20) {
 			irq_tx_complete();
@@ -1148,7 +1155,11 @@ static int irq_handler(void* data){
 		if((ph_pend & 0x10) == 0x10) {
 			irq_rx();
 			rx_flag = 1;
+			preamble_detect = 0;
 		}
+
+
+
 		printk(KERN_ALERT "tx_complete_flag: %d, isSending: %d\n",tx_complete_flag, isSending);
 	 	if (!tx_complete_flag && isSending) {
 	 		/* *
@@ -1166,7 +1177,7 @@ static int irq_handler(void* data){
 	 	isHandlingIrq = 0;
 error:
 		//Clear IRQ, rx process will clear irq.
-		if(!rx_flag && !tx_complete_flag){
+		if(!rx_flag && !tx_complete_flag && !preamble_detect){
 //			printk(KERN_ALERT "(((((((((((((((1)))))))))))))\n");
 //			get_interrupt_status();
 //			printk(KERN_ALERT "(((((((((((((((2)))))))))))))\n");
@@ -1192,6 +1203,7 @@ error:
 
 static int cmd_queue_handler(void *data){
 	struct cmd *cmd_;
+	int i;
 	u8 tmp_len;
 	u8 tmp[10];
 	u8 rx[64];
@@ -1201,8 +1213,8 @@ static int cmd_queue_handler(void *data){
 	while(1/*!kthread_should_stop()*/){
 //		printk(KERN_ALERT "cmd_queue_handler:1\n");
 		if(isHandlingIrq) {
-			mdelay(2);
-			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
+			mdelay(5);
+//			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
 			continue;
 //			mutex_lock(&mutex_irq_handling);
 		}
@@ -1214,8 +1226,13 @@ static int cmd_queue_handler(void *data){
 //			u16 len = get_packet_info();
 //			printk(KERN_ALERT "PACKET LEN: %d\n", len);
 
+			get_modem_status(tmp);
+			rssi = tmp[3];// & 0x08;
+			printk(KERN_ALERT "rssi: %x\n", rssi);
+
 			get_fifo_info(tmp);
-			printk(KERN_ALERT "FIFO: %d, %d, GPIO1:%d\n", tmp[1], tmp[2], get_CCA_latch());
+			printk(KERN_ALERT "FIFO: %d, %d\n", tmp[1], tmp[2]);
+
 //
 //			printk(KERN_ALERT "rssi: %x\n", rssi);
 
@@ -1238,6 +1255,7 @@ static int cmd_queue_handler(void *data){
 			si4463_rx(si4463_devs,rx[0],rx+1);
 //			clr_interrupt();
 
+			rbuf_print_status(&cmd_ringbuffer);
 
 			break;
 		case SEND_CMD:
@@ -1257,10 +1275,22 @@ static int cmd_queue_handler(void *data){
 //			printk(KERN_ALERT "When Sending, FIFO: %d, %d, GPIO1:%d\n", tmp[1], tmp[2], get_CCA_latch());
 
 
-			get_modem_status(tmp);
-			rssi = tmp[2] & 0x08;
-			printk(KERN_ALERT "rssi: %x\n", rssi);
-			if(isHandlingIrq || rssi!=0 || rbuf_peep_first_isREADCMD(&cmd_ringbuffer)){
+			/*
+			 * can use rssi int: first close other int, then open rssi int.
+			 */
+			for(i = 0; i<10; i++){
+//				get_modem_status(tmp);
+//				//rssi = tmp[3];// & 0x08;
+//				printk(KERN_ALERT "rssi: %x\n", tmp[3]);
+
+				rssi = get_CCA();
+				if(rssi)
+					break;
+				ndelay(95);
+			}
+			printk(KERN_ALERT "rssi: %d\n", rssi);
+//			printk(KERN_ALERT "preamble_detect: %d\n", preamble_detect);
+			if(/*preamble_detect ||*/ isHandlingIrq || rssi/*rssi!=0*/ || rbuf_peep_first_isREADCMD(&cmd_ringbuffer)){
 				/*
 				 * we cannot send when receiving.
 				 */
@@ -1307,8 +1337,14 @@ static int cmd_queue_handler(void *data){
 			//clr_interrupt();
 			clr_packet_sent_pend();
 
-			break;
+			rx_start();
 
+			rbuf_print_status(&cmd_ringbuffer);
+
+			break;
+		default:
+			printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!CMD ERROR!!!!!!!!!!!!!!!!!\n");
+			rbuf_print_status(&cmd_ringbuffer);
 		}
 	}
 	return -1;

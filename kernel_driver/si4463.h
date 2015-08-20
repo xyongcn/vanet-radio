@@ -47,7 +47,7 @@ struct cmd_queue {
 #define CS_SELF   		49	//IO8 //10    // SS
 #define RADIO_SDN   	48	//IO7 //182
 #define NIRQ 			182 //IO6  //interrpt
-#define GPIO1			183 //IO9
+#define GPIO0			183 //IO9
 
 
 

@@ -45,7 +45,7 @@ void rbuf_destroy(rbuf_t *rb);
 /* 压入数据 */
 int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_);
 
-int rbuf_insert_readcmd(rbuf_t *rb, struct cmd *cmd_);
+int rbuf_insert_readcmd(rbuf_t *rb);
 
 /* 取出数据 */
 struct cmd * rbuf_dequeue(rbuf_t *rb);
@@ -63,4 +63,5 @@ int rbuf_len(rbuf_t *rb);
 
 bool rbuf_peep_first_isREADCMD(rbuf_t *rb);
 
+void rbuf_print_status(rbuf_t *rb);
 #endif

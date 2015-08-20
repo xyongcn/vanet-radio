@@ -33,7 +33,11 @@ void cs_high(void){
 	gpio_set_value(CS_SELF, 1);
 }
 int get_CCA_latch(void){
-	return gpio_get_value(GPIO1);
+	return gpio_get_value(GPIO0);
+}
+
+bool get_CCA(void){
+	return gpio_get_value(GPIO0)>0 ? 1 : 0;
 }
 
 void getCTS(void) {
@@ -515,7 +519,7 @@ void clr_packet_sent_pend(void) {
 	u8 p2[3];
 	p[0] = GET_PH_STATUS;
 //	p[1] = 0xdf;
-	p[1] = 0x10;
+	p[1] = 0x10;//leave the PACKET_RX_PEND_CLR alone
 	spi_write_cmd(2, p);
 //	SendCmdReceiveAnswer(2,3,p,p2);
 }
@@ -525,9 +529,17 @@ void clr_packet_rx_pend(void) {
 	u8 p2[3];
 	p[0] = GET_PH_STATUS;
 //	p[1] = 0xef;
-	p[1] = 0x20;
+	p[1] = 0x20;//leave the PACKET_SENT_PEND_CLR alone
 //	spi_write_cmd(2, p);
 	SendCmdReceiveAnswer(2,3,p,p2);
+}
+
+void clr_preamble_detect_pend(void){
+	u8 p[2];
+	p[0] = GET_MODEM_STATUS;
+	p[1] = 0xfd;
+	spi_write_cmd(2, p);
+//	SendCmdReceiveAnswer(2,3,p,p2);
 }
 
 void clr_interrupt(void)		// 清中断标志
@@ -639,7 +651,7 @@ void tx_start(void)					// 开始发射
 	p[1] = freq_channel ;  			// 通道0
 
 //	p[2] = 0x50;//TX_TUNE
-	p[2] = 0x80;//RX
+	p[2] = 0x60;//RX_TUNE
 
 	p[3] = 0x00;
 	p[4] = 0x00;
@@ -756,7 +768,7 @@ void get_modem_status(u8 *rx){
 
 	p[0] = GET_MODEM_STATUS;
 	p[1] = 0xff;
-	SendCmdReceiveAnswer(2, 3, p, rx);
+	SendCmdReceiveAnswer(2, 4, p, rx);
 }
 
 
@@ -774,7 +786,7 @@ void read_frr_a(u8 *value) {
 	spidev_sync_transfer(&spidev_global, &cmd, value,  1);
 	cs_high();
 	mutex_unlock(&mutex_spi);
-
+/*
 	for(j=5; j>=0 && (*value == 0 || *value == 0xff); j--)
 	{
 //		mutex_lock(&mutex_spi);
@@ -794,6 +806,7 @@ void read_frr_a(u8 *value) {
 		mutex_unlock(&mutex_spi);
 
 	}
+*/
 	return;
 }
 
