@@ -18,7 +18,7 @@
 #define IOCTL_SET_BUSY _IOWR(MAJOR_NUM_TX,1,int)
 #include <linux/netdevice.h>
 
-#define SPI_SPEED 9000000 //8M
+#define SPI_SPEED 2097152 //8M
 #define BITS_PER_WORD 8
 
 struct spidev_data {
@@ -33,7 +33,7 @@ struct spidev_data {
 	u8			*buffer;
 };
 
-
+//inline void D
 
 struct cmd_queue {
 	int count;
@@ -48,6 +48,7 @@ struct cmd_queue {
 #define RADIO_SDN   	48	//IO7 //182
 #define NIRQ 			182 //IO6  //interrpt
 #define GPIO0			183 //IO9
+#define GPIO1			13 //IO5
 
 
 

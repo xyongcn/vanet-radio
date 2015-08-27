@@ -184,7 +184,7 @@ static u8 tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x
 
 
 /* PIN MUX */
-#define pin_mux_num  28
+#define pin_mux_num  31
 //const char gpio_pin[pin_mux_num][4] = {
 //		/*"111 ",*/
 //		"115 ",
@@ -254,7 +254,12 @@ const struct gpio pin_mux[pin_mux_num] = {
 		/*IO6*/
 		{254, GPIOF_INIT_LOW, NULL},
 		{222, GPIOF_DIR_IN, NULL},
-		{182, GPIOF_DIR_IN, NULL}
+		{182, GPIOF_DIR_IN, NULL},
+
+		/*IO5*/
+		{253, GPIOF_INIT_LOW, NULL},
+		{221, GPIOF_DIR_IN, NULL},
+		{13, GPIOF_DIR_IN, NULL}
 };
 
 
@@ -304,7 +309,15 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 //	mutex_unlock(&mutex_spi);
 
 	if (status == 0) {
-		wait_for_completion(&done);
+//		wait_for_completion(&done);
+		/*
+		* Return: 0 if timed out, and positive (at least 1, or number of jiffies left
+		* till timeout) if completed.
+		*/
+		status = wait_for_completion_timeout(&done, HZ);
+		if(status == 0){
+			printk(KERN_ALERT "*********************SPI TIMEOUT ERROR*****************\n");
+		}
 		status = message->status;
 		if (status == 0)
 			status = message->actual_length;
@@ -344,7 +357,7 @@ spidev_sync_write(struct spidev_data *spidev,  size_t len)
 	struct spi_transfer	t = {
 			.tx_buf		= spidev->buffer,
 			.len		= len,
-			.cs_change	= 1,
+			.cs_change	= 0,
 		};
 	struct spi_message	m;
 
@@ -378,7 +391,7 @@ spidev_sync_read(struct spidev_data *spidev, size_t len)
 	struct spi_transfer	t = {
 			.rx_buf		= spidev->buffer,
 			.len		= len,
-			.cs_change	= 1,
+			.cs_change	= 0,
 		};
 	struct spi_message	m;
 
@@ -1070,11 +1083,11 @@ static void irq_tx_complete() {
 //
 	up(&sem_tx_complete);
 	isSending = 0;
-	printk(KERN_ALERT "TX_COMPLETE\n");
+//	printk(KERN_ALERT "TX_COMPLETE\n");
 //	mutex_unlock(&mutex_tx_complete);
 }
 static void irq_rx(/*void *dev_id*/){
-	printk(KERN_ALERT "RECV\n");
+//	printk(KERN_ALERT "RECV\n");
 //	tmp_devs = (struct net_device *) dev_id;
 	//cmd_queue_head->count++;
 //	struct cmd cmd_;
@@ -1160,7 +1173,7 @@ static int irq_handler(void* data){
 
 
 
-		printk(KERN_ALERT "tx_complete_flag: %d, isSending: %d\n",tx_complete_flag, isSending);
+//		printk(KERN_ALERT "tx_complete_flag: %d, isSending: %d\n",tx_complete_flag, isSending);
 	 	if (!tx_complete_flag && isSending) {
 	 		/* *
 	 		 * recv a packet when a sending is wait for complete.
@@ -1204,6 +1217,7 @@ error:
 static int cmd_queue_handler(void *data){
 	struct cmd *cmd_;
 	int i;
+	int ret;
 	u8 tmp_len;
 	u8 tmp[10];
 	u8 rx[64];
@@ -1223,19 +1237,9 @@ static int cmd_queue_handler(void *data){
 		switch(cmd_->type){
 		case READFIFO_CMD:
 			printk(KERN_ALERT "+++++++++++++++++++++++++++READFIFO_CMD+++++++++++++++++++++++++++\n");
-//			u16 len = get_packet_info();
-//			printk(KERN_ALERT "PACKET LEN: %d\n", len);
-
-			get_modem_status(tmp);
-			rssi = tmp[3];// & 0x08;
-			printk(KERN_ALERT "rssi: %x\n", rssi);
 
 			get_fifo_info(tmp);
 			printk(KERN_ALERT "FIFO: %d, %d\n", tmp[1], tmp[2]);
-
-//
-//			printk(KERN_ALERT "rssi: %x\n", rssi);
-
 
 			if(tmp[1]!=64){
 				/*
@@ -1247,15 +1251,12 @@ static int cmd_queue_handler(void *data){
 			}
 
 			spi_read_fifo(rx, 64);
-//			ppp(tmp, 64);
 		    //get data from hardware register
 			tmp_len = rx[0];
 			printk(KERN_ALERT "Len: %d\n", tmp_len);
 			clr_packet_rx_pend();
+			rx_start();
 			si4463_rx(si4463_devs,rx[0],rx+1);
-//			clr_interrupt();
-
-			rbuf_print_status(&cmd_ringbuffer);
 
 			break;
 		case SEND_CMD:
@@ -1265,19 +1266,11 @@ static int cmd_queue_handler(void *data){
 				break;
 			}
 			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
-			//enable_tx_interrupt();
-
-//			ppp(cmd_->data, cmd_->len);
-//			printk(KERN_ALERT "Before: \n");
-//			get_fifo_info();
-//			get_interrupt_status();
-//			get_fifo_info(tmp);
-//			printk(KERN_ALERT "When Sending, FIFO: %d, %d, GPIO1:%d\n", tmp[1], tmp[2], get_CCA_latch());
-
-
 			/*
 			 * can use rssi int: first close other int, then open rssi int.
 			 */
+						get_modem_status(tmp);
+						printk(KERN_ALERT "When Sending, rssi value: %x\n", tmp[3]);
 			for(i = 0; i<10; i++){
 //				get_modem_status(tmp);
 //				//rssi = tmp[3];// & 0x08;
@@ -1288,7 +1281,10 @@ static int cmd_queue_handler(void *data){
 					break;
 				ndelay(95);
 			}
-			printk(KERN_ALERT "rssi: %d\n", rssi);
+
+//			get_modem_status(tmp);
+//			printk(KERN_ALERT "When Sending, rssi value: %x\n", tmp[3]);
+//			printk(KERN_ALERT "rssi: %d\n", rssi);
 //			printk(KERN_ALERT "preamble_detect: %d\n", preamble_detect);
 			if(/*preamble_detect ||*/ isHandlingIrq || rssi/*rssi!=0*/ || rbuf_peep_first_isREADCMD(&cmd_ringbuffer)){
 				/*
@@ -1305,7 +1301,6 @@ static int cmd_queue_handler(void *data){
 			change_state2tx_tune();
 			isSending = 1;
 
-			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", cmd_->len);
 //			printk(KERN_ALERT "Writing: \n");
 //			get_fifo_info();
 //			get_interrupt_status();
@@ -1313,7 +1308,7 @@ static int cmd_queue_handler(void *data){
 
 //			tx_change_variable_len(cmd_->len);
 			tmp_len = cmd_->len;
-			if(tmp_len > 50) {
+			if(tmp_len > 40) {
 				cmd_->data[0] = 0x18;
 				cmd_->data[1] = 0x02;
 				cmd_->data[2] = 0x03;
@@ -1325,21 +1320,21 @@ static int cmd_queue_handler(void *data){
 			spi_write_fifo(cmd_->data, cmd_->len);
 			if((cmd_->len + 1) < 64)
 				spi_write_fifo(padding, 64-cmd_->len-1);
-//			ppp(cmd_->data, cmd_->len);
-//			printk(KERN_ALERT "NIRQ after: %d\n", gpio_get_value(NIRQ));
 			tx_start();
+			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", cmd_->len);
 			//semaphore
-			down(&sem_tx_complete);
-//			mutex_lock(&mutex_tx_complete);
-//			printk(KERN_ALERT "Sending: \n");
-//			get_fifo_info();
-//			get_interrupt_status();
-			//clr_interrupt();
-			clr_packet_sent_pend();
+//			down(&sem_tx_complete);
+			ret = down_timeout(&sem_tx_complete, 2*HZ);
+			if(ret == 0)
+				clr_packet_sent_pend();
+			else {
+				printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!SEND ERROR, RESETING!!!!!!!!!!!!!!!!!\n");
+
+				reset();
+				break;
+			}
 
 			rx_start();
-
-			rbuf_print_status(&cmd_ringbuffer);
 
 			break;
 		default:
@@ -1464,6 +1459,11 @@ int set_pinmux(){
 	ret = gpio_export(254, 1);
 	ret = gpio_export(222, 1);
 
+	/* IO5 */
+	ret = gpio_export(13, 1);
+	ret = gpio_export(253, 1);
+	ret = gpio_export(221, 1);
+
     /* gpio export */
 //    fp = filp_open("/sys/class/gpio/export", O_WRONLY, 0);
 //    for (i=0; i<pin_mux_num; i++) {
@@ -1504,6 +1504,16 @@ int set_pinmux(){
     write2file(fp, s_in, 2);
     fp = filp_open("/sys/class/gpio/gpio182/direction", O_RDWR, 0);
     write2file(fp, s_in, 2);
+    /* IO5 */
+    fp = filp_open("/sys/kernel/debug/gpio_debug/gpio13/current_pinmux", O_RDWR, 0);
+    write2file(fp, s_mode0, 5);
+    fp = filp_open("/sys/class/gpio/gpio253/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+    fp = filp_open("/sys/class/gpio/gpio221/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio13/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+
     /* SPI */
     fp = filp_open("/sys/class/gpio/gpio263/direction", O_RDWR, 0);
     write2file(fp, s_high, 4);
@@ -1622,18 +1632,6 @@ int si4463_open(struct net_device *dev)
 
 
 	printk(KERN_ALERT "si4463_o2pen\n");
-
-
-
-
-
-	/*
-	 *
-	 */
-	//gpio_direction_output(SCKpin, 0);
-	//gpio_direction_output(MOSIpin, 0);
-	//gpio_direction_input(MISOpin);
-
 	/* spi setup :
 	 * 		SPI_MODE_0
 	 * 		MSBFIRST
@@ -1648,42 +1646,13 @@ int si4463_open(struct net_device *dev)
 		return -ESHUTDOWN;
 
 	tmp = ~SPI_MODE_MASK;
-
-//	printk(KERN_ALERT "init: tmp= %x\n", tmp);
-//	tmp |= SPI_MODE_0;
-//	//tmp |= SPI_NO_CS;
-//	//tmp |= SPI_CS_HIGH;
-//	//tmp |= SPI_READY;
-//	printk(KERN_ALERT "midd: tmp= %x\n", tmp);
-//	tmp |= spi_save->mode & ~SPI_MODE_MASK;
-//	printk(KERN_ALERT "after: tmp= %x\n", tmp);
-//	spi_save->mode = (u8)tmp;
-//	spi_save->bits_per_word = BITS_PER_WORD;
-//	spi_save->max_speed_hz = SPI_SPEED;
-//
-//	ret = spi_setup(spi_save);
-//	if (ret < 0)
-//		printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
-//	else
-//		printk(KERN_ALERT "spi_setup succeed\n");
-
-	/* Waiting Queue */
-	//init_waitqueue_head(&spi_wait_queue);
-	//cmd_queue_head = kmalloc(sizeof(struct cmd_queue), GFP_ATOMIC);
-	//cmd_queue_head->count = 0;
-
-
 	netif_start_queue(dev);
-
-//	gpio_set_value(RADIO_SDN, 0);//enable
-//	mdelay(10);
-	//getCTS();
 	reset();
 
 //	si4463_register_init();
-	setRFParameters();
+//	setRFParameters();
 //	Function_set_tran_property();
-	fifo_reset();
+//	fifo_reset();
 
 	/*RX*/
 	//printk(KERN_ALERT "RXXXXXXXXXXX\n");
@@ -1692,8 +1661,7 @@ int si4463_open(struct net_device *dev)
 	//printk(KERN_ALERT "enable_rx_interrupt\n");
 	clr_interrupt();
 	//printk(KERN_ALERT "clr_interrupt\n");
-	rx_start();
-	//printk(KERN_ALERT "rx_start\n");
+
 
 	mdelay(1000);
 
@@ -1745,6 +1713,8 @@ int si4463_open(struct net_device *dev)
 		}
 */
 
+	rx_start();
+	printk(KERN_ALERT "rx_start\n");
     return ret;
 }
 
@@ -2006,6 +1976,7 @@ static void __exit spidev_exit(void)
 		free_netdev(si4463_devs);
 	}
 	del_timer(&tx_withdraw_timer);
+	rbuf_destroy(&cmd_ringbuffer);
 	return;
 }
 module_exit(spidev_exit);

@@ -9,7 +9,6 @@
 /*
  * FUNCTIONS
  */
-void getCTS(void);
 //Writing and Reading func
 u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	u8 * out_buff);

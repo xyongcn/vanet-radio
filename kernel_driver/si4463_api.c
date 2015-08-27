@@ -40,7 +40,7 @@ bool get_CCA(void){
 	return gpio_get_value(GPIO0)>0 ? 1 : 0;
 }
 
-void getCTS(void) {
+static inline void getCTS(void) {
 	u8 reply = 0x00;
 	u8 request = 0x44;
 	int j = 25;
@@ -59,6 +59,19 @@ void getCTS(void) {
 		if (j-- < 0)
 			break;
 	}
+}
+
+static inline int getCTS_gpio(void) {
+	int count = 2000;
+	while (count-- && !gpio_get_value(GPIO1)){
+		ndelay(10);
+	}
+	if (count <= 0){
+		printk(KERN_ALERT "getCTS wrong!!!");
+		return 0;
+	}
+	return 1;
+
 }
 /*
  void getCTS(void){
@@ -95,12 +108,20 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 		//printk(KERN_ALERT "%x ", *(spidev_global.buffer));
 		spidev_sync_write(&spidev_global, 1);
 	}
+
 	cs_high();
+
+	if(byteCountRx == 0) {
+		mutex_unlock(&mutex_spi);
+		return NULL;
+	}
+
 //	ndelay(100);
 	ndelay(10);
 	cs_low();
 
-	getCTS();
+//	if(!getCTS_gpio())
+		getCTS();
 
 	for (k=0; k<byteCountRx; k++){
 		spidev_global.buffer = &(out_buff[k]);
@@ -177,11 +198,15 @@ void reset(void) {
 	//ppp(buff, 9);
 
 //const char gpio_pin_cfg_command[] = {0x13, 0x02, 0x02, 0x02, 0x02, 0x08, 0x11, 0x00}; //  Set all GPIOs LOW; Link NIRQ to CTS; Link SDO to MISO; Max drive strength
-	u8 gpio_pin_cfg_command[] = { 0x13, 0x14, 0x02, 0x21, 0x20,
-			0x27, 0x0b, 0x00 };
-	SendCmdReceiveAnswer(8, 8, gpio_pin_cfg_command, buff);
-	//ppp(buff, 8);
+//	u8 gpio_pin_cfg_command[] = { 0x13, 0x14, 0x02, 0x21, 0x20,
+//			0x27, 0x0b, 0x00 };
+//	SendCmdReceiveAnswer(8, 8, gpio_pin_cfg_command, buff);
+//	//ppp(buff, 8);
+//
 
+	setRFParameters();
+//	Function_set_tran_property();
+	fifo_reset();
 
 }
 
@@ -651,10 +676,11 @@ void tx_start(void)					// 开始发射
 	p[1] = freq_channel ;  			// 通道0
 
 //	p[2] = 0x50;//TX_TUNE
-	p[2] = 0x60;//RX_TUNE
+//	p[2] = 0x60;//RX_TUNE
+	p[2] = 0x30;//ready
 
 	p[3] = 0x00;
-	p[4] = 0x00;
+	p[4] = 0x40;
 	spi_write_cmd(5, p);
 }
 
@@ -687,12 +713,12 @@ void rx_start(void)					// 开始接收
 	p[0] = START_RX ;
 	p[1] = freq_channel ; 			// 通道0
 	p[2] = 0x00;
-	p[3] = 0;
-	p[4] = 0;
-	p[5] = 0x08;
-	p[6] = 0x08;
-	p[7] = 0x08;
-	spi_write_cmd(8, p);
+	p[3] = 0x00;
+	p[4] = 0x40;
+	p[5] = 0x00;
+	p[6] = 0x03;
+	p[7] = 0x03;
+	spi_write_cmd(8, p);///5
 }
 
 void change_state2tx_tune(void){
@@ -730,7 +756,7 @@ void spi_read_fifo(unsigned char * st, int len) {
 //	u8 ret;
 	spidev_global.buffer = &cmd;
 	spidev_sync_write(&spidev_global, 1);
-	cmd = 0x00;
+	cmd = 0xff;
 
 	for (j = 0; j < len; j++) {
 		spidev_sync_transfer(&spidev_global, &cmd, &(st[j]),  1);
