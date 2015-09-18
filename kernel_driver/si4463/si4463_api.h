@@ -94,7 +94,7 @@ void get_interrupt_status(void);
 #define CMD_PATCH_IMAGE							0x04
 
 // Common Commands
-#define CMD_NOP									0x00
+//#define CMD_NOP_									0x00
 #define CMD_PART_INFO							0x01
 #define CMD_FUNC_INFO							0x10
 #define CMD_SET_PROPERTY						0x11

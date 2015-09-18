@@ -43,9 +43,6 @@
 
 #include <asm/uaccess.h>
 
-/* For the si4463 module. If spidev module is required, then ... */
-//#define SI4463
-
 /*
  * This supports access to SPI devices using normal userspace I/O calls.
  * Note that while traditional UNIX/POSIX I/O semantics are half duplex,
@@ -92,8 +89,6 @@ static struct class *spidev_class;
 
 /*-------------------------------------------------------------------------*/
 
-
-
 static LIST_HEAD(device_list);
 static DEFINE_MUTEX(device_list_lock);
 
@@ -101,11 +96,32 @@ static unsigned bufsiz = 4096;
 module_param(bufsiz, uint, S_IRUGO);
 MODULE_PARM_DESC(bufsiz, "data bytes in biggest supported SPI message");
 
+/**
+ * Module installed.
+ * Support si4463 or rf212
+ */
+#define SI4463	1
+#define RF212	2
+
+static int module_install_global = 0;
+module_param(module_install_global, int, S_IRUGO);
+MODULE_PARM_DESC(module_install_global, "module installed");
+
+static int mtu_global = 50;
+module_param(mtu_global, int, S_IRUGO);
+MODULE_PARM_DESC(mtu_global, "MAC layer MTU");
+
 /*-------------------------------------------------------------------------*/
 
 
-#include "si4463.h"
-#include "si4463_api.h"
+#include "radio.h"
+#include "si4463/si4463_api.h"
+
+#include "rf212/at86rf212.h"
+#include "rf212/rf212_api.h"
+#include "rf212/return_val.h"
+#include "rf212/tal_internal.h"
+
 //#include "cmd_queue.h"
 #include "ringbuffer.h"
 
@@ -143,6 +159,8 @@ struct semaphore sem_tx_complete;
 //DEFINE_SEMAPHORE(sem_irq);
 struct semaphore sem_irq;
 DEFINE_MUTEX(mutex_irq_handling);
+DEFINE_MUTEX(mutex_spi);
+
 
 /* TX withdraw timer */
 struct timer_list tx_withdraw_timer;
@@ -158,7 +176,7 @@ static void withdraw(unsigned long data)
 
 /* GLOBAL */
 static char  netbuffer[100];
-struct net_device *si4463_devs;
+struct net_device *global_net_devs;
 //struct net_device *tmp_devs;
 
 static bool isSending = 0;
@@ -178,6 +196,16 @@ struct spidev_data *spidev_test_global;
 rbuf_t cmd_ringbuffer;
 struct task_struct *cmd_handler_tsk;
 struct task_struct *irq_handler_tsk;
+
+/* chip status for rf212 */
+extern tal_trx_status_t tal_trx_status;
+extern tal_state_t tal_state;
+
+/**
+ * Function points to the threads
+ */
+int (*cmd_queue_handler)(void*);
+int (*irq_handler)(void*);
 
 /* FOR DEBUG */
 static u8 tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
@@ -288,7 +316,7 @@ static void spidev_complete(void *arg)
 static ssize_t
 spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 {
-//	gpio_set_value(CS_SELF, 0);
+//	gpio_set_value(SSpin, 0);
 	//ndelay(100);
 
 	DECLARE_COMPLETION_ONSTACK(done);
@@ -324,7 +352,7 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 	}
 
 
-//	gpio_set_value(CS_SELF, 1);
+//	gpio_set_value(SSpin, 1);
 	return status;
 }
 
@@ -919,7 +947,10 @@ static int spidev_probe(struct spi_device *spi)
 			printk(KERN_ALERT "ERROR! RADIO_SDN request error: %d\n", err);
 //			lnw_gpio_set_alt(RADIO_SDN, saved_muxing);
 		}
-		gpio_direction_output(RADIO_SDN, 1);
+		if (module_install_global == SI4463)
+			gpio_direction_output(RADIO_SDN, 1);
+		else if (module_install_global == RF212)
+			gpio_direction_output(RST_PIN, 0);
 
 //	} else {
 //		printk(KERN_ALERT "ERROR! invalid pin RADIO_SDN\n");
@@ -927,19 +958,19 @@ static int spidev_probe(struct spi_device *spi)
 
 	/* Request Chip Select gpios */
 
-//	if (gpio_is_valid(CS_SELF)) {
-//		saved_muxing = gpio_get_alt(CS_SELF);
-//		lnw_gpio_set_alt(CS_SELF, LNW_GPIO);
-//		err = gpio_request_one(CS_SELF,
+//	if (gpio_is_valid(SSpin)) {
+//		saved_muxing = gpio_get_alt(SSpin);
+//		lnw_gpio_set_alt(SSpin, LNW_GPIO);
+//		err = gpio_request_one(SSpin,
 //				GPIOF_DIR_OUT | GPIOF_INIT_HIGH, "Radio CS pin");
-		err = gpio_request(CS_SELF,  "Radio CS pin");
+		err = gpio_request(SSpin,  "Radio CS pin");
 		if (err) {
-			printk(KERN_ALERT "ERROR! CS_SELF request error: %d\n", err);
-//			lnw_gpio_set_alt(CS_SELF, saved_muxing);
+			printk(KERN_ALERT "ERROR! SSpin request error: %d\n", err);
+//			lnw_gpio_set_alt(SSpin, saved_muxing);
 		}
-		gpio_direction_output(CS_SELF, 1);
+		gpio_direction_output(SSpin, 1);
 //	} else {
-//		printk(KERN_ALERT "ERROR! invalid pin CS_SELF\n");
+//		printk(KERN_ALERT "ERROR! invalid pin SSpin\n");
 //	}
 //
 //	/*
@@ -980,7 +1011,7 @@ static int spidev_probe(struct spi_device *spi)
 	if (ret < 0)
 		printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
 	else
-		printk(KERN_ALERT "spi_setup succeed\n");
+		printk(KERN_ALERT "spi_setup succeed, spi:%x, spidev_global.spi:%x\n", spi, spidev_global.spi);
 
 	/* PIN MUX */
 	set_pinmux();
@@ -997,6 +1028,8 @@ static int spidev_probe(struct spi_device *spi)
 	tx_withdraw_timer.expires = jiffies + 4 * HZ/1000; //jiffies + HZ/2 are 0.5s
 	tx_withdraw_timer.function = withdraw;
 	tx_withdraw_timer.data = 0;
+
+
 
 	return status;
 }
@@ -1054,12 +1087,12 @@ static struct spi_driver spidev_spi_driver = {
  * and the sk_buff will be freed in the up layer.
  */
 
-void si4463_rx(struct net_device *dev, int len, unsigned char *buf)
+void netstack_rx(struct net_device *dev, int len, unsigned char *buf)
 {
 //	printk(KERN_ALERT "si4463_rx\n");
 //	ppp(buf, len);
     struct sk_buff *skb;
-    struct si4463_priv *priv = netdev_priv(dev);//(struct si4463_priv *) dev->priv;
+    struct module_priv *priv = netdev_priv(dev);//(struct module_priv *) dev->priv;
 
     skb = dev_alloc_skb(len+2);
     if (!skb) {
@@ -1083,7 +1116,12 @@ static void irq_tx_complete() {
 //
 	up(&sem_tx_complete);
 	isSending = 0;
-//	printk(KERN_ALERT "TX_COMPLETE\n");
+	if(module_install_global == RF212) {
+		tal_state = TAL_IDLE;
+		tal_csma_state = CSMA_IDLE;
+	}
+
+	printk(KERN_ALERT "TX_COMPLETE\n");
 //	mutex_unlock(&mutex_tx_complete);
 }
 static void irq_rx(/*void *dev_id*/){
@@ -1100,6 +1138,395 @@ static void irq_rx(/*void *dev_id*/){
 	rbuf_insert_readcmd(&cmd_ringbuffer);
 	//wake_up_interruptible(&spi_wait_queue);
 }
+static irqreturn_t rf212_interrupt (int irq, void *dev_id)
+{
+	isHandlingIrq = 1;
+
+	printk(KERN_ALERT "=====IRQ=====\n");
+//	printk(KERN_ALERT "sen_irq before: %d\n", sem_irq.count);
+	if(sem_irq.count > 0)
+		printk(KERN_ALERT "!!!!!!!!!sen_irq > 0\n");
+	up(&sem_irq);
+//	printk(KERN_ALERT "sen_irq after: %d\n", sem_irq.count);
+//	mutex_unlock(&mutex_irq);
+	return IRQ_HANDLED;
+}
+static int rf212_irq_handler(void* data){
+	bool tx_complete_flag;
+	bool rx_flag;
+	u8 ph_pend;
+	u8 md_status;
+	trx_irq_reason_t trx_irq_cause;
+
+	while(1/*!kthread_should_stop()*/) {
+		tx_complete_flag = 0;
+		rx_flag = 0;
+		isHandlingIrq = 0;
+
+		down(&sem_irq);
+	    trx_irq_cause = (trx_irq_reason_t)pal_trx_reg_read(RG_IRQ_STATUS);
+
+	    printk(KERN_ALERT "trx_irq_cause: %x", trx_irq_cause);
+
+	    if (trx_irq_cause & TRX_IRQ_TRX_END)
+	    {
+	        /*
+	         * TRX_END reason depends on if the trx is currently used for
+	         * transmission or reception.
+	         */
+	#if ((!defined RFD) && (!defined NOBEACON))
+	        if ((tal_state == TAL_TX_AUTO) || tal_beacon_transmission)
+	#else
+	        if (tal_state == TAL_TX_AUTO)
+	#endif
+	        {
+	            /* Get the result and push it to the queue. */
+//	            handle_tx_end_irq();
+	        	irq_tx_complete();
+	        	tx_complete_flag = 1;
+	        }
+	        else   /* Other tal_state than TAL_TX_... */
+	        {
+	            /* Handle rx done interrupt. */
+//	            handle_received_frame_irq();
+	        	irq_rx();
+	        	rx_flag = 1;
+	        	preamble_detect = 0;
+	        }
+	    }
+
+
+//		printk(KERN_ALERT "tx_complete_flag: %d, isSending: %d\n",tx_complete_flag, isSending);
+	 	if (!tx_complete_flag && isSending) {
+	 		/* *
+	 		 * recv a packet when a sending is wait for complete.
+	 		 * the tx send complete irq	will be vanished
+	 		 * */
+	 		/*
+	 		 * SEND ERROR!!!!
+	 		 */
+	 		printk(KERN_ALERT "!!!!SEND ERROR!!!!\n");
+	 		tx_fifo_reset();
+	 		irq_tx_complete();
+	 		rx_start();
+	 	}
+	 	isHandlingIrq = 0;
+error:
+		//Clear IRQ, rx process will clear irq.
+		if(!rx_flag && !tx_complete_flag && !preamble_detect){
+
+		}
+		isHandlingIrq = 0;
+	}
+	return -1;
+}
+static int rf212_cmd_queue_handler(void *data){
+	struct cmd *cmd_;
+	int i;
+	int ret;
+	u8 tmp_len;
+	u8 tmp[130];
+//	u8 rx[64];
+	u8 padding[64];
+	struct sk_buff *skb;
+	u8* data_ptr;
+//	u8 rssi;
+	memset(padding, 0, 64);
+	while(1/*!kthread_should_stop()*/){
+//		printk(KERN_ALERT "cmd_queue_handler:1\n");
+		if(isHandlingIrq) {
+//			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
+			continue;
+//			mutex_lock(&mutex_irq_handling);
+		}
+		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
+//		mutex_unlock(&mutex_irq_handling);
+		switch(cmd_->type){
+		case READFIFO_CMD:
+			printk(KERN_ALERT "+++++++++++++++++++++++++++READFIFO_CMD+++++++++++++++++++++++++++\n");
+
+	        pal_trx_frame_read(&tmp_len, 1);
+	        //len += 2;
+//	        Serial.print("len:");
+//	        Serial.println(len);
+	        pal_trx_frame_read(tmp, tmp_len);
+
+			printk(KERN_ALERT "rf212: Len: %d\n", tmp_len);
+//			clr_packet_rx_pend();
+//			rx_start();
+			rf212_clr_irq();
+			netstack_rx(global_net_devs,tmp[0]-2,tmp+1);
+
+
+			break;
+		case SEND_CMD:
+			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
+
+			if(/*preamble_detect ||*/ isHandlingIrq || rbuf_peep_first_isREADCMD(&cmd_ringbuffer)){
+				/*
+				 * we cannot send when receiving.
+				 */
+				rbuf_enqueue(&cmd_ringbuffer, cmd_);
+				printk(KERN_ALERT "BREAK!!!\n");
+//				tx_approved = 0;
+//				add_timer(&tx_withdraw_timer);
+				break;
+			}
+
+			isSending = 1;
+
+			skb = (struct sk_buff*)cmd_->data;
+			tmp_len = skb->len;
+			data_ptr = skb->data;
+//			/* THIS MAY TRIGGER ERROR! */
+//			*(data_ptr--) = tmp_len + 2;
+			memcpy(tmp+1, data_ptr, tmp_len);
+			tmp[0] = tmp_len + 2;
+			if(tmp_len > 40) {
+				tmp[1] = 0x18;
+				tmp[2] = 0x02;
+				tmp[3] = 0x03;
+				tmp[4] = 0x04;
+				tmp[5] = 0x05;
+				tmp[6] = 0x06;
+			}
+
+			ppp(tmp, tmp_len+1);
+
+			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
+			send_frame(tmp, 1, 0);
+			//semaphore
+			printk(KERN_ALERT "waiting begin\n");
+			ret = down_timeout(&sem_tx_complete, 2*HZ);
+			/* FREE THE SKB */
+			dev_kfree_skb(skb);
+			if(ret == 0) {
+				//clear irq
+				rf212_clr_irq();
+			}else {
+				printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!SEND ERROR, RESETING!!!!!!!!!!!!!!!!!\n");
+
+				trx_reset();
+				break;
+			}
+
+			rf212_rx_begin();
+			break;
+		default:
+			printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!CMD ERROR!!!!!!!!!!!!!!!!!\n");
+			rbuf_print_status(&cmd_ringbuffer);
+		}
+	}
+	return -1;
+
+}
+
+int rf212_open(struct net_device *dev)
+{
+	int ret=0;
+	int saved_muxing = 0;
+	int err,tmp;
+
+
+	printk(KERN_ALERT "RF212_o2pen\n");
+	/* spi setup :
+	 * 		SPI_MODE_0
+	 * 		MSBFIRST
+	 * 		CS active low
+	 * 		IRQ
+	 */
+	if (spi_save == NULL)
+		return -ESHUTDOWN;
+
+	tmp = ~SPI_MODE_MASK;
+	netif_start_queue(dev);
+
+	/**
+	 * INIT RF212
+	 */
+	if (FAILURE == tal_init())
+		printk(KERN_ALERT "tal_init FAILED!!! \n");
+
+	mdelay(1000);
+
+	/* IRQ */
+	int irq = gpio_to_irq(NIRQ);
+	gpio_set_value(NIRQ, 0);
+	irq_set_irq_type(irq, IRQ_TYPE_EDGE_RISING);
+
+    ret = request_irq(irq, rf212_interrupt, IRQF_NO_SUSPEND,
+			  dev->name, dev);
+	if (ret){
+		printk(KERN_ALERT "request_irq failed!\n");
+		return ret;
+	}
+
+	/*RING BUFFER */
+	rbuf_init(&cmd_ringbuffer);
+
+	/*CMD HANDLER*/
+	cmd_handler_tsk = kthread_run(cmd_queue_handler, NULL, "cmd_queue_handler");
+	if (IS_ERR(cmd_handler_tsk)) {
+		printk(KERN_ALERT "create kthread failed!\n");
+	} else {
+		printk("create ktrhead ok!\n");
+	}
+
+	/* IRQ HANDLER */
+	irq_handler_tsk = kthread_run(irq_handler, NULL, "irq_handler");
+	if (IS_ERR(irq_handler_tsk)) {
+		printk(KERN_ALERT "create kthread irq_handler failed!\n");
+	} else {
+		printk("create ktrhead irq_handler ok!\n");
+	}
+
+	rf212_rx_begin();
+	printk(KERN_ALERT "rx_start\n");
+    return ret;
+}
+
+//void rf212_hw_tx(char *buf, u16 len, struct net_device *dev)
+//{
+//    struct module_priv *priv;
+//
+//    /* check the ip packet length,it must more then 34 octets */
+////    if (len < sizeof(struct ethhdr) + sizeof(struct iphdr))
+////	{
+////        printk("Bad packet! It's size is less then 34!\n");
+////        return;
+////    }
+//    /* record the transmitted packet status */
+//    priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
+//    priv->stats.tx_packets++;
+//    priv->stats.rx_bytes += len;
+//
+////    ppp(buf, len);
+//
+//	struct cmd cmd_;
+//	cmd_.type = SEND_CMD;
+//	cmd_.data =
+//
+////	if (len >= 64)
+////		goto out;
+////	cmd_.len =  len;//19;
+//
+//	rbuf_enqueue(&cmd_ringbuffer, &cmd_);//must before the kfree
+//out:
+//    /* remember to free the sk_buffer allocated in upper layer. */
+//	//commemt 20150915: move the kfree_skb to the cmd_queue_handler.
+//    //dev_kfree_skb(priv->skb);
+//
+//
+//}
+
+int rf212_tx(struct sk_buff *skb, struct net_device *dev){
+//    int len;
+//    u8 *data;
+    struct module_priv *priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
+
+//    len = skb->len;// < ETH_ZLEN ? ETH_ZLEN : skb->len;
+//    data = skb->data;
+
+
+    /* stamp the time stamp */
+    dev->trans_start = jiffies;
+
+    /* check the ip packet length,it must more then 34 octets */
+//    if (len < sizeof(struct ethhdr) + sizeof(struct iphdr))
+//	{
+//        printk("Bad packet! It's size is less then 34!\n");
+//        return;
+//    }
+    /* record the transmitted packet status */
+    priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
+    priv->stats.tx_packets++;
+    priv->stats.rx_bytes += skb->len;
+
+	struct cmd cmd_;
+	cmd_.type = SEND_CMD;
+	cmd_.data = (void*)skb;
+
+	rbuf_enqueue(&cmd_ringbuffer, &cmd_);//must before the kfree
+
+    /* remember the skb and free it in si4463_hw_tx */
+//    priv->skb = skb;
+
+    /* pseudo transmit the packet,hehe */
+//    rf212_hw_tx(data, (u16)len, dev);
+
+    return 0;
+}
+
+int rf212_release(struct net_device *dev)
+{
+	printk("rf212_release\n");
+    netif_stop_queue(dev);
+    gpio_set_value(RADIO_SDN, 1);//disable
+    free_irq(gpio_to_irq(NIRQ),global_net_devs);
+    gpio_free_array(pin_mux, pin_mux_num);
+	gpio_unexport(109);
+	gpio_unexport(111);
+	gpio_unexport(114);
+	gpio_unexport(115);
+
+//	kthread_stop(cmd_handler_tsk);
+//	kthread_stop(irq_handler_tsk);
+    return 0;
+}
+
+
+/*
+ * Deal with a transmit timeout.
+ */
+void rf212_tx_timeout (struct net_device *dev)
+{
+    struct module_priv *priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
+    priv->stats.tx_errors++;
+    netif_wake_queue(dev);
+
+    return;
+}
+
+
+
+/*
+ * When we need some ioctls.
+ */
+int rf212_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
+{
+	printk("rf212_ioctl\n");
+    return 0;
+}
+
+/*
+ * ifconfig to get the packet transmitting status.
+ */
+
+struct net_device_stats *rf212_stats(struct net_device *dev)
+{
+    struct module_priv *priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
+    return &priv->stats;
+}
+
+/*
+ * TCP/IP handshake will call this function, if it need.
+ */
+int rf212_change_mtu(struct net_device *dev, int new_mtu)
+{
+    unsigned long flags;
+    spinlock_t *lock = &((struct module_priv *) netdev_priv(dev)/*dev->priv*/)->lock;
+
+    /* en, the mtu CANNOT LESS THEN 68 OR MORE THEN 1500. */
+    if (new_mtu < 68)
+        return -EINVAL;
+
+    spin_lock_irqsave(lock, flags);
+    dev->mtu = new_mtu;
+    spin_unlock_irqrestore(lock, flags);
+
+    return 0;
+}
+
 static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 {
 	isHandlingIrq = 1;
@@ -1114,7 +1541,7 @@ static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static int irq_handler(void* data){
+static int si4463_irq_handler(void* data){
 	bool tx_complete_flag;
 	bool rx_flag;
 	u8 ph_pend;
@@ -1214,7 +1641,7 @@ error:
 	return -1;
 }
 
-static int cmd_queue_handler(void *data){
+static int si4463_cmd_queue_handler(void *data){
 	struct cmd *cmd_;
 	int i;
 	int ret;
@@ -1223,6 +1650,8 @@ static int cmd_queue_handler(void *data){
 	u8 rx[64];
 	u8 padding[64];
 	u8 rssi;
+	struct sk_buff *skb;
+	u8* data_ptr;
 	memset(padding, 0, 64);
 	while(1/*!kthread_should_stop()*/){
 //		printk(KERN_ALERT "cmd_queue_handler:1\n");
@@ -1256,7 +1685,7 @@ static int cmd_queue_handler(void *data){
 			printk(KERN_ALERT "Len: %d\n", tmp_len);
 			clr_packet_rx_pend();
 			rx_start();
-			si4463_rx(si4463_devs,rx[0],rx+1);
+			netstack_rx(global_net_devs,rx[0],rx+1);
 
 			break;
 		case SEND_CMD:
@@ -1307,24 +1736,28 @@ static int cmd_queue_handler(void *data){
 //			printk(KERN_ALERT "NIRQ before: %d\n", gpio_get_value(NIRQ));
 
 //			tx_change_variable_len(cmd_->len);
-			tmp_len = cmd_->len;
+			skb = (struct sk_buff*)cmd_->data;
+			tmp_len = skb->len;
+			data_ptr = skb->data;
 			if(tmp_len > 40) {
-				cmd_->data[0] = 0x18;
-				cmd_->data[1] = 0x02;
-				cmd_->data[2] = 0x03;
-				cmd_->data[3] = 0x04;
-				cmd_->data[4] = 0x05;
-				cmd_->data[5] = 0x06;
+				data_ptr[0] = 0x18;
+				data_ptr[1] = 0x02;
+				data_ptr[2] = 0x03;
+				data_ptr[3] = 0x04;
+				data_ptr[4] = 0x05;
+				data_ptr[5] = 0x06;
 			}
 			spi_write_fifo(&tmp_len, 1);
-			spi_write_fifo(cmd_->data, cmd_->len);
-			if((cmd_->len + 1) < 64)
-				spi_write_fifo(padding, 64-cmd_->len-1);
+			spi_write_fifo(data_ptr, tmp_len);
+			if((tmp_len + 1) < 64)
+				spi_write_fifo(padding, 64-tmp_len-1);
 			tx_start();
-			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", cmd_->len);
+			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
 			//semaphore
 //			down(&sem_tx_complete);
 			ret = down_timeout(&sem_tx_complete, 2*HZ);
+			/* FREE THE SKB */
+			dev_kfree_skb(skb);
 			if(ret == 0)
 				clr_packet_sent_pend();
 			else {
@@ -1477,15 +1910,29 @@ int set_pinmux(){
 	/* TRI_STATE_ALL */
     fp = filp_open("/sys/class/gpio/gpio214/direction", O_RDWR, 0);
     write2file(fp, s_low, 3);
-    /* IO9 */
-    fp = filp_open("/sys/kernel/debug/gpio_debug/gpio183/current_pinmux", O_RDWR, 0);
-    write2file(fp, s_mode0, 5);
-    fp = filp_open("/sys/class/gpio/gpio257/direction", O_RDWR, 0);
-    write2file(fp, s_low, 3);
-    fp = filp_open("/sys/class/gpio/gpio225/direction", O_RDWR, 0);
-    write2file(fp, s_in, 2);
-    fp = filp_open("/sys/class/gpio/gpio183/direction", O_RDWR, 0);
-    write2file(fp, s_in, 2);
+
+	if (module_install_global == SI4463) {
+		/* IO9 Input for si4463(GPIO)*/
+		fp = filp_open("/sys/kernel/debug/gpio_debug/gpio183/current_pinmux", O_RDWR, 0);
+		write2file(fp, s_mode0, 5);
+		fp = filp_open("/sys/class/gpio/gpio257/direction", O_RDWR, 0);
+		write2file(fp, s_low, 3);
+		fp = filp_open("/sys/class/gpio/gpio225/direction", O_RDWR, 0);
+		write2file(fp, s_in, 2);
+		fp = filp_open("/sys/class/gpio/gpio183/direction", O_RDWR, 0);
+		write2file(fp, s_in, 2);
+	} else if (module_install_global == RF212) {
+	    /* IO9 OUTPUT for RF212(SLP)*/
+	    fp = filp_open("/sys/kernel/debug/gpio_debug/gpio183/current_pinmux", O_RDWR, 0);
+	    write2file(fp, s_mode0, 5);
+	    fp = filp_open("/sys/class/gpio/gpio257/direction", O_RDWR, 0);
+	    write2file(fp, s_high, 4);
+	    fp = filp_open("/sys/class/gpio/gpio225/direction", O_RDWR, 0);
+	    write2file(fp, s_in, 2);
+	    fp = filp_open("/sys/class/gpio/gpio183/direction", O_RDWR, 0);
+	    write2file(fp, s_high, 4);
+	}
+
 	/* IO7,8 */
     fp = filp_open("/sys/class/gpio/gpio256/direction", O_RDWR, 0);
     write2file(fp, s_high, 4);
@@ -1556,69 +2003,6 @@ int set_pinmux(){
     write2file(fp, s_high, 4);
 
     filp_close(fp,NULL);
-
-//
-//    /* disable spi PM */
-//    fp[6] = filp_open("/sys/devices/pci0000:00/0000:00:07.1/power/control", O_RDWR, 0);
-//    fs =get_fs();
-//    set_fs(KERNEL_DS);
-//    pos = 0;
-//    vfs_write(fp[6], s_on, 2, &pos);
-//    pos = 0;
-//    vfs_read(fp[6], buf1, sizeof(buf1), &pos);
-//    printk(KERN_ALERT "readPM: %s\n",buf1);
-//    filp_close(fp[6],NULL);
-//    set_fs(fs);
-//
-//	ret = gpio_export(109, 1);
-//	ret = gpio_export(111, 1);
-//	ret = gpio_export(114, 1);
-//	ret = gpio_export(115, 1);
-//	/* TRI_STATE_ALL */
-////	ret = gpio_export(214, 1);
-////	fp_214 = filp_open("/sys/class/gpio/gpio214/direction", O_RDONLY, 0);
-////    fs =get_fs();
-////    set_fs(KERNEL_DS);
-////    pos = 0;
-////	vfs_write(fp_214, buf_low, sizeof(buf_low), &pos);
-////	filp_close(fp_214,NULL);
-////    set_fs(fs);
-//
-//	/* Set other gpio */
-//	ret = gpio_request_array(pin_mux, pin_mux_num);
-//
-//    fp[0] = filp_open("/sys/kernel/debug/gpio_debug/gpio109/current_pinmux", O_RDWR, 0);
-//    fp[1] = filp_open("/sys/kernel/debug/gpio_debug/gpio111/current_pinmux", O_RDWR, 0);
-//    fp[2] = filp_open("/sys/kernel/debug/gpio_debug/gpio114/current_pinmux", O_RDWR, 0);
-//    fp[3] = filp_open("/sys/kernel/debug/gpio_debug/gpio115/current_pinmux", O_RDWR, 0);
-//
-//    fp[5] = filp_open("/sys/kernel/debug/gpio_debug/gpio182/current_pinmux", O_RDWR, 0);
-//
-//
-//
-////    if (IS_ERR(fp)){
-////        printk("open file error/n");
-////        return -1;
-////    }
-//    fs =get_fs();
-//    set_fs(KERNEL_DS);
-//
-//    pos = 0;
-//    for(i = 0; i < 4; i++) {
-//		vfs_write(fp[i], s_mode1, sizeof(s_mode1), &pos);
-//		pos = 0;
-//		vfs_read(fp[i], buf1, sizeof(buf1), &pos);
-//		printk(KERN_ALERT "read: %s\n",buf1);
-//		filp_close(fp[i],NULL);
-//    }
-//    pos = 0;
-//    vfs_write(fp[5], s_mode0, sizeof(s_mode0), &pos);
-//    filp_close(fp[5],NULL);
-//    set_fs(fs);
-//
-//
-//	gpio_direction_output(214, 1);
-
 
 	return 0;
 
@@ -1723,7 +2107,7 @@ int si4463_release(struct net_device *dev)
 	printk("si4463_release\n");
     netif_stop_queue(dev);
     gpio_set_value(RADIO_SDN, 1);//disable
-    free_irq(gpio_to_irq(NIRQ),si4463_devs);
+    free_irq(gpio_to_irq(NIRQ),global_net_devs);
     gpio_free_array(pin_mux, pin_mux_num);
 	gpio_unexport(109);
 	gpio_unexport(111);
@@ -1740,40 +2124,40 @@ int si4463_release(struct net_device *dev)
  * ed_tx device.
  */
 
-void si4463_hw_tx(char *buf, u16 len, struct net_device *dev)
-{
-//	int i;
-	//printk("si4463_hw_tx\n");
-    struct si4463_priv *priv;
-
-    /* check the ip packet length,it must more then 34 octets */
-    if (len < sizeof(struct ethhdr) + sizeof(struct iphdr))
-	{
-        printk("Bad packet! It's size is less then 34!\n");
-        return;
-    }
-    /* record the transmitted packet status */
-    priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
-    priv->stats.tx_packets++;
-    priv->stats.rx_bytes += len;
-
-//    ppp(buf, len);
-
-	struct cmd cmd_;
-	cmd_.type = SEND_CMD;
-	cmd_.data = buf;//the memcpy will be ran in the enqueue.
-
-	if (len >= 64)
-		goto out;
-	cmd_.len =  len;//19;
-
-	rbuf_enqueue(&cmd_ringbuffer, &cmd_);//must before the kfree
-out:
-    /* remember to free the sk_buffer allocated in upper layer. */
-    dev_kfree_skb(priv->skb);
-
-
-}
+//void si4463_hw_tx(char *buf, u16 len, struct net_device *dev)
+//{
+////	int i;
+//	//printk("si4463_hw_tx\n");
+//    struct module_priv *priv;
+//
+//    /* check the ip packet length,it must more then 34 octets */
+//    if (len < sizeof(struct ethhdr) + sizeof(struct iphdr))
+//	{
+//        printk("Bad packet! It's size is less then 34!\n");
+//        return;
+//    }
+//    /* record the transmitted packet status */
+//    priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
+//    priv->stats.tx_packets++;
+//    priv->stats.rx_bytes += len;
+//
+////    ppp(buf, len);
+//
+//	struct cmd cmd_;
+//	cmd_.type = SEND_CMD;
+//	cmd_.data = buf;//the memcpy will be ran in the enqueue.
+//
+//	if (len >= 64)
+//		goto out;
+//	cmd_.len =  len;//19;
+//
+//	rbuf_enqueue(&cmd_ringbuffer, &cmd_);//must before the kfree
+//out:
+//    /* remember to free the sk_buffer allocated in upper layer. */
+//    dev_kfree_skb(priv->skb);
+//
+//
+//}
 
 /*
  * Transmit the packet,called by the kernel when there is an
@@ -1783,25 +2167,37 @@ out:
 int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 {
 //	printk(KERN_ALERT "si4463_tx\n");
-    int len;
-    u8 *data;
-    struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
+    struct module_priv *priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
 
-    len = skb->len;// < ETH_ZLEN ? ETH_ZLEN : skb->len;
-
-//    printk(KERN_ALERT "LEN: skb->len[%d], len[%d]\n", skb->len, len);
-
-    data = skb->data;
+//    len = skb->len;// < ETH_ZLEN ? ETH_ZLEN : skb->len;
+//    data = skb->data;
 
 
     /* stamp the time stamp */
     dev->trans_start = jiffies;
 
+    /* check the ip packet length,it must more then 34 octets */
+//    if (len < sizeof(struct ethhdr) + sizeof(struct iphdr))
+//	{
+//        printk("Bad packet! It's size is less then 34!\n");
+//        return;
+//    }
+    /* record the transmitted packet status */
+    priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
+    priv->stats.tx_packets++;
+    priv->stats.rx_bytes += skb->len;
+
+	struct cmd cmd_;
+	cmd_.type = SEND_CMD;
+	cmd_.data = (void*)skb;
+
+	rbuf_enqueue(&cmd_ringbuffer, &cmd_);//must before the kfree
+
     /* remember the skb and free it in si4463_hw_tx */
-    priv->skb = skb;
+//    priv->skb = skb;
 
     /* pseudo transmit the packet,hehe */
-    si4463_hw_tx(data, (u16)len, dev);
+//    rf212_hw_tx(data, (u16)len, dev);
 
     return 0;
 }
@@ -1811,7 +2207,7 @@ int si4463_tx(struct sk_buff *skb, struct net_device *dev)
  */
 void si4463_tx_timeout (struct net_device *dev)
 {
-    struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
+    struct module_priv *priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
     priv->stats.tx_errors++;
     netif_wake_queue(dev);
 
@@ -1835,7 +2231,7 @@ int si4463_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 
 struct net_device_stats *si4463_stats(struct net_device *dev)
 {
-    struct si4463_priv *priv = (struct si4463_priv *) netdev_priv(dev);//dev->priv;
+    struct module_priv *priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
     return &priv->stats;
 }
 
@@ -1845,7 +2241,7 @@ struct net_device_stats *si4463_stats(struct net_device *dev)
 int si4463_change_mtu(struct net_device *dev, int new_mtu)
 {
     unsigned long flags;
-    spinlock_t *lock = &((struct si4463_priv *) netdev_priv(dev)/*dev->priv*/)->lock;
+    spinlock_t *lock = &((struct module_priv *) netdev_priv(dev)/*dev->priv*/)->lock;
 
     /* en, the mtu CANNOT LESS THEN 68 OR MORE THEN 1500. */
     if (new_mtu < 68)
@@ -1858,7 +2254,7 @@ int si4463_change_mtu(struct net_device *dev, int new_mtu)
     return 0;
 }
 
-static const struct net_device_ops my_netdev_ops = {
+static const struct net_device_ops si4463_netdev_ops = {
 
 	.ndo_open            = si4463_open,
 	.ndo_stop            = si4463_release,
@@ -1868,6 +2264,23 @@ static const struct net_device_ops my_netdev_ops = {
 	.ndo_change_mtu      = si4463_change_mtu,
 	.ndo_tx_timeout      = si4463_tx_timeout,
 };
+
+/**
+ * RF212 File Operation
+ */
+//=========================================================================================
+
+static const struct net_device_ops rf212_netdev_ops = {
+
+	.ndo_open            = rf212_open,
+	.ndo_stop            = rf212_release,
+	.ndo_start_xmit		 = rf212_tx,
+	.ndo_do_ioctl        = rf212_ioctl,
+	.ndo_get_stats       = rf212_stats,
+	.ndo_change_mtu      = rf212_change_mtu,
+	.ndo_tx_timeout      = rf212_tx_timeout,
+};
+
 
 //static void si4463_net_dev_setup(struct net_device *dev)
 //{
@@ -1884,16 +2297,20 @@ static const struct net_device_ops my_netdev_ops = {
 //
 //}
 
-void si4463_net_init(struct net_device *dev)
+void module_net_init(struct net_device *dev)
 {
 
-	struct si4463_priv *priv;
+	struct module_priv *priv;
 	ether_setup(dev); /* assign some of the fields */
 //	si4463_net_dev_setup(dev);
 
-	dev->netdev_ops = &my_netdev_ops;
+	if (module_install_global == SI4463)
+		dev->netdev_ops = &si4463_netdev_ops;
+	else if(module_install_global == RF212)
+		dev->netdev_ops = &rf212_netdev_ops;
+
 	//MTU
-	dev->mtu		= 50;
+	dev->mtu		= mtu_global;
 
 	dev->dev_addr[0] = 0x18;//(0x01 & addr[0])为multicast
 	dev->dev_addr[1] = 0x02;
@@ -1910,7 +2327,7 @@ void si4463_net_init(struct net_device *dev)
 	 * and a few private fields.
 	 */
 	priv = netdev_priv(dev);
-	memset(priv, 0, sizeof(struct si4463_priv));
+	memset(priv, 0, sizeof(struct module_priv));
 	spin_lock_init(&priv->lock);
 }
 
@@ -1942,19 +2359,30 @@ static int __init spidev_init(void)
 	}
 
 	/* Allocate the NET devices */
-	si4463_devs = alloc_netdev(sizeof(struct si4463_priv), "rf%d", si4463_net_init);
-	if (si4463_devs == NULL)
+	global_net_devs = alloc_netdev(sizeof(struct module_priv), "rf%d", module_net_init);
+	if (global_net_devs == NULL)
 		goto out;
 
 
 	ret = -ENODEV;
-	if ((result = register_netdev(si4463_devs)))
-		printk(KERN_ALERT "demo: error %i registering device \"%s\"\n",result, si4463_devs->name);
+	if ((result = register_netdev(global_net_devs)))
+		printk(KERN_ALERT "demo: error %i registering device \"%s\"\n",result, global_net_devs->name);
 	else
 		ret = 0;
 	/* init sem_irq , locked */
 	sema_init(&sem_irq, 0);
 	sema_init(&sem_tx_complete, 0);
+
+	/**
+	 * Func points
+	 */
+	if(module_install_global == SI4463) {
+		cmd_queue_handler = &si4463_cmd_queue_handler;
+		irq_handler = &si4463_irq_handler;
+	} else if(module_install_global == RF212) {
+		cmd_queue_handler = &rf212_cmd_queue_handler;
+		irq_handler = &rf212_irq_handler;
+	}
 out:
 	return status;
 }
@@ -1969,11 +2397,11 @@ static void __exit spidev_exit(void)
 	unregister_chrdev(SPIDEV_MAJOR, spidev_spi_driver.driver.name);
 
 	gpio_free(RADIO_SDN);
-	gpio_free(CS_SELF);
-	if (si4463_devs)
+	gpio_free(SSpin);
+	if (global_net_devs)
 	{
-		unregister_netdev(si4463_devs);
-		free_netdev(si4463_devs);
+		unregister_netdev(global_net_devs);
+		free_netdev(global_net_devs);
 	}
 	del_timer(&tx_withdraw_timer);
 	rbuf_destroy(&cmd_ringbuffer);

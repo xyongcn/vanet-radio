@@ -33,18 +33,18 @@ void rbuf_destroy(rbuf_t *c)
 }
 
 void copy_cmd(struct cmd *dest, struct cmd *src){
-//	dest->data = src->data;
-//	memcpy(dest->data, src->data, src->len);
-	int i;
-	for(i=0; i<src->len; i++)
-		dest->data[i] = src->data[i];
-	dest->len = src->len;
+//	int i;
+	//comment 20150915: reduce the memcpy
+//	for(i=0; i<src->len; i++)
+//		dest->data[i] = src->data[i];
+	dest->data = src->data;
+//	dest->len = src->len;
 	dest->type = src->type;
 //	dest->next = src->next;
 }
 
 void copy_cmd_without_dataField(struct cmd *dest, struct cmd *src) {
-	dest->len = src->len;
+//	dest->len = src->len;
 	dest->type = src->type;
 //	dest->next = src->next;
 }
@@ -94,7 +94,7 @@ int rbuf_insert_readcmd(rbuf_t *rb)
 	{
 		spin_lock(&rb->lock);
 		rb->data[rb->next_in].type = READFIFO_CMD;
-		rb->data[rb->next_in].len = 4;
+//		rb->data[rb->next_in].len = 4;
 		rb->next_in++;
 		rb->size++;
 		rb->next_in %= rb->capacity;
@@ -115,7 +115,7 @@ int rbuf_insert_readcmd(rbuf_t *rb)
 //	copy_cmd_without_dataField(&(rb->data[rb->next_out]), cmd_);
 
 	rb->data[rb->next_out].type = READFIFO_CMD;
-	rb->data[rb->next_out].len = 4;
+//	rb->data[rb->next_out].len = 4;
 
 	rb->size++;
 	spin_unlock(&rb->lock);

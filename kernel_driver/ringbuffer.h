@@ -11,13 +11,38 @@
 #define RBUF_MAX 100
 #define MAXSIZE_PER_CMD 64
 
+
+/* === TEMPPPPP~ ==============================================================*/
+typedef struct buffer_tag
+{
+    uint8_t *body;              /* Pointer to the buffer body */
+    struct buffer_tag *next;    /* Pointer to next free buffer */
+} buffer_t;
+/**
+ * Queue structure. The application should declare the queue of type queue_t
+ * and call qmm_queue_init before invoking any other functionality of qmm
+ */
+typedef struct queue_tag
+{
+    buffer_t *head;
+    buffer_t *tail;
+
+    /* Maximum number of buffers that can be accomodated in the current queue */
+    uint8_t capacity;
+
+    /* Number of buffers present in the current queue */
+    uint8_t size;
+} queue_t;
+/* === TEMPPPPP~ ==============================================================*/
+
 struct cmd {
 #define READFIFO_CMD	1
 #define SEND_CMD		2
 #define OTHER_CMD		55
 	int type;
-	u8 * data;
-	u16 len;
+	void * data;
+//	struct sk_buff *skb;
+//	u16 len;
 //	struct cmd *next;
 };
 

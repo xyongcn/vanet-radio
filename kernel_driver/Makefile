@@ -1,11 +1,11 @@
-obj-m := si4463.o
-si4463-objs := si4463_spidev.o si4463_api.o
+obj-m := rf.o
+rf-objs := radio_spidev.o si4463/si4463_api.o ringbuffer.o rf212/rf212_api.o rf212/tal_pib.o rf212/tal.o
 
 KDIR :=/home/wu/Desktop/edison/kernel/linux-edison-standard-build
 
 PWD := $(shell pwd)
 
-EXTRA_CFLAGS += -DNOMIPS -fno-pic
+EXTRA_CFLAGS += 
 
 default:
 	$(MAKE)	-C $(KDIR) SUBDIRS=$(PWD) modules 

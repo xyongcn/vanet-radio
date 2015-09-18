@@ -1,6 +1,6 @@
 #include "si4463_api.h"
 #include "cmd.h"
-#include "si4463.h"
+#include "../radio.h"
 
 #include <linux/kernel.h> /* printk() */
 #include <linux/slab.h> /* kmalloc() */
@@ -14,8 +14,7 @@ extern struct spi_device *spi_save;
 extern struct spidev_data spidev_global;
 extern wait_queue_head_t spi_wait_queue;
 
-DEFINE_MUTEX(mutex_spi);
-
+extern struct mutex mutex_spi;
 //extern struct task_struct *cmd_handler_tsk;
 
 //const unsigned char tx_ph_data[19] = {'a','b','c','d','e',0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55,0x55};
@@ -27,10 +26,10 @@ int freq_channel = 0;
 static u8 config_table[] = RADIO_CONFIGURATION_DATA_ARRAY;
 /*-------------------------------------------------------------------------*/
 void cs_low(void){
-	gpio_set_value(CS_SELF, 0);
+	gpio_set_value(SSpin, 0);
 }
 void cs_high(void){
-	gpio_set_value(CS_SELF, 1);
+	gpio_set_value(SSpin, 1);
 }
 int get_CCA_latch(void){
 	return gpio_get_value(GPIO0);
@@ -167,19 +166,19 @@ void reset(void) {
 /*
 	printk(KERN_ALERT "Set CS to 1 \n");
 	cs_high();
-	printk(KERN_ALERT "get CS %d \n",gpio_get_value(CS_SELF));
+	printk(KERN_ALERT "get CS %d \n",gpio_get_value(SSpin));
 	mdelay(5000);
 	printk(KERN_ALERT "Set CS to 0 \n");
 	cs_low();
-	printk(KERN_ALERT "get CS %d \n",gpio_get_value(CS_SELF));
+	printk(KERN_ALERT "get CS %d \n",gpio_get_value(SSpin));
 	mdelay(5000);
 	printk(KERN_ALERT "Set CS to 1 \n");
 	cs_high();
-	printk(KERN_ALERT "get CS %d \n",gpio_get_value(CS_SELF));
+	printk(KERN_ALERT "get CS %d \n",gpio_get_value(SSpin));
 	mdelay(5000);
 	printk(KERN_ALERT "Set CS to 0 \n");
 	cs_low();
-	printk(KERN_ALERT "get CS %d \n",gpio_get_value(CS_SELF));
+	printk(KERN_ALERT "get CS %d \n",gpio_get_value(SSpin));
 */
 //const unsigned char init_command[] = {0x02, 0x01, 0x01, x3, x2, x1, x0};// no patch, boot main app. img, FREQ_VCXO, return 1 byte
 	u8 init_command[] = { RF_POWER_UP };

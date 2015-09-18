@@ -40,18 +40,6 @@ struct cmd_queue {
 	struct cmd *head;
 };
 
-
-#define SCKpin  		109//IO13   // SCK
-#define MOSIpin 		115//IO11   // MOSI
-#define MISOpin 		114//IO12   // MISO
-#define CS_SELF   		49	//IO8 //10    // SS
-#define RADIO_SDN   	48	//IO7 //182
-#define NIRQ 			182 //IO6  //interrpt
-#define GPIO0			183 //IO9
-#define GPIO1			13 //IO5
-
-
-
 struct ed_device{
 	int magic;
 	char name[8]; 	
@@ -68,7 +56,7 @@ struct ed_device{
 };
 
 /* this is the private data struct of ednet */
-struct si4463_priv
+struct module_priv
 {
     struct net_device_stats stats;
     struct sk_buff *skb;
@@ -86,6 +74,24 @@ inline ssize_t spidev_async_write(struct spidev_data *spidev,  size_t len);
 void ppp(u8 * arr, int len);
 
 int set_pinmux(void);
+
+// PIN Definitions:
+
+
+
+/* common */
+#define SCKpin  		109//IO13   // SCK
+#define MOSIpin 		115//IO11   // MOSI
+#define MISOpin 		114//IO12   // MISO
+#define SSpin   		49	//IO8 //10    // SS
+#define RST_PIN   		48	//IO7 //182
+#define RADIO_SDN		RST_PIN
+#define NIRQ 			182 //IO6  //interrpt
+/* SI4463 GPIO*/
+#define GPIO0			183 //IO9
+#define GPIO1			13 //IO5
+/* RF212 SLP */
+#define SLP_TR_PIN 		183 //IO9
 
 #endif
 
