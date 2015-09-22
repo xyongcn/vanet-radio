@@ -9,6 +9,9 @@
 /* === Tools ================================================================*/
 uint16_t rand(void);
 void  pal_timer_delay(uint16_t delay);
+void ENTER_CRITICAL_REGION(void); //mutex_lock(&mutex_spi);
+void LEAVE_CRITICAL_REGION(void); //mutex_unlock(&mutex_spi);
+
 
 
 retval_t tal_init(void);

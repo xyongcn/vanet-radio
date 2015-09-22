@@ -182,6 +182,8 @@ struct net_device *global_net_devs;
 static bool isSending = 0;
 static bool isHandlingIrq = 0;
 static bool preamble_detect = 0;
+
+wait_queue_head_t wait_irq;
 //struct {
 //	bool flag;
 //	mutex_irq_handling
@@ -342,7 +344,7 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 		* Return: 0 if timed out, and positive (at least 1, or number of jiffies left
 		* till timeout) if completed.
 		*/
-		status = wait_for_completion_timeout(&done, HZ);
+		status = wait_for_completion_timeout(&done, 3*HZ);
 		if(status == 0){
 			printk(KERN_ALERT "*********************SPI TIMEOUT ERROR*****************\n");
 		}
@@ -1022,6 +1024,7 @@ static int spidev_probe(struct spi_device *spi)
 //	//init_waitqueue_head(&spi_wait_queue);
 //	//cmd_queue_head = kmalloc(sizeof(struct cmd_queue), GFP_ATOMIC);
 //	//cmd_queue_head->count = 0;
+	init_waitqueue_head(&wait_irq);
 
 	/* setup timer */
 	setup_timer(&tx_withdraw_timer, withdraw, 0);
@@ -1211,12 +1214,13 @@ static int rf212_irq_handler(void* data){
 	 		rx_start();
 	 	}
 	 	isHandlingIrq = 0;
-error:
+//error:
 		//Clear IRQ, rx process will clear irq.
 		if(!rx_flag && !tx_complete_flag && !preamble_detect){
 
 		}
 		isHandlingIrq = 0;
+		wake_up_interruptible(&wait_irq);
 	}
 	return -1;
 }
@@ -1235,8 +1239,9 @@ static int rf212_cmd_queue_handler(void *data){
 	while(1/*!kthread_should_stop()*/){
 //		printk(KERN_ALERT "cmd_queue_handler:1\n");
 		if(isHandlingIrq) {
-//			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
-			continue;
+			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
+			wait_event_interruptible(wait_irq, !isHandlingIrq);
+//			continue;
 //			mutex_lock(&mutex_irq_handling);
 		}
 		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
@@ -1291,18 +1296,21 @@ static int rf212_cmd_queue_handler(void *data){
 				tmp[6] = 0x06;
 			}
 
-			ppp(tmp, tmp_len+1);
+//			ppp(tmp, tmp_len+1);
 
 			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
 			send_frame(tmp, 1, 0);
 			//semaphore
 			printk(KERN_ALERT "waiting begin\n");
 			ret = down_timeout(&sem_tx_complete, 2*HZ);
+			printk(KERN_ALERT "waiting end\n");
 			/* FREE THE SKB */
 			dev_kfree_skb(skb);
+			printk(KERN_ALERT "free skb\n");
 			if(ret == 0) {
 				//clear irq
 				rf212_clr_irq();
+				printk(KERN_ALERT "clr irq\n");
 			}else {
 				printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!SEND ERROR, RESETING!!!!!!!!!!!!!!!!!\n");
 
@@ -1311,6 +1319,7 @@ static int rf212_cmd_queue_handler(void *data){
 			}
 
 			rf212_rx_begin();
+			printk(KERN_ALERT "rf212_rx_begin\n");
 			break;
 		default:
 			printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!CMD ERROR!!!!!!!!!!!!!!!!!\n");

@@ -33,7 +33,7 @@ typedef struct queue_tag
     /* Number of buffers present in the current queue */
     uint8_t size;
 } queue_t;
-/* === TEMPPPPP~ ==============================================================*/
+/* === TEMPPPPP~end ==============================================================*/
 
 struct cmd {
 #define READFIFO_CMD	1

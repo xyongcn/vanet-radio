@@ -29,8 +29,7 @@
 #define ASSERT(expr)
 #define DEBUG -1
 
-#define ENTER_CRITICAL_REGION() mutex_lock(&mutex_spi);
-#define LEAVE_CRITICAL_REGION() mutex_unlock(&mutex_spi);
+
 //#define FAILURE -1
 //#define SUCCESS 0
 #define SS_LOW() gpio_set_value(SSpin, 0);

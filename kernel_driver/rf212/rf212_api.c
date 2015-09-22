@@ -40,6 +40,17 @@ void  pal_timer_delay(uint16_t delay)
         ndelay(delay);
 
 }
+
+void ENTER_CRITICAL_REGION(void)
+{
+	mutex_lock(&mutex_spi);
+}
+
+void LEAVE_CRITICAL_REGION(void)
+{
+	mutex_unlock(&mutex_spi);
+}
+
 /* ===  ================================================================*/
 
 
@@ -748,6 +759,7 @@ void send_frame(uint8_t *frame_tx, bool use_csma, bool tx_retries)
 
 //    ENTER_CRITICAL_REGION();    // prevent from buffer underrun
 
+    pal_trx_frame_write(frame_tx, frame_tx[0]);
     /* Toggle the SLP_TR pin triggering transmission. */
     pal_gpio_set(SLP_TR_PIN, HIGH);
     pal_gpio_set(SLP_TR_PIN, LOW);
@@ -758,8 +770,9 @@ void send_frame(uint8_t *frame_tx, bool use_csma, bool tx_retries)
      * be sent to the transceiver and this contains the frame
      * length.
      */
+
     tal_state = TAL_TX_AUTO;
-    pal_trx_frame_write(frame_tx, frame_tx[0]);
+
 
 
 
