@@ -35,26 +35,25 @@ uint16_t rand(){
  *
  * @param delay in microseconds
  */
-void  pal_timer_delay(uint16_t delay)
+inline void pal_timer_delay(uint16_t delay)
 {
         ndelay(delay);
 
 }
 
-void ENTER_CRITICAL_REGION(void)
+inline void ENTER_CRITICAL_REGION(void)
 {
-	mutex_lock(&mutex_spi);
+//	printk(KERN_ALERT "LOCK\n");
+//	mutex_lock(&mutex_spi);
 }
 
-void LEAVE_CRITICAL_REGION(void)
+inline void LEAVE_CRITICAL_REGION(void)
 {
-	mutex_unlock(&mutex_spi);
+//	printk(KERN_ALERT "UNLOCK\n");
+//	mutex_unlock(&mutex_spi);
 }
 
 /* ===  ================================================================*/
-
-
-
 
 inline static u8 spi_put(u8 data){
 	int ret;
@@ -92,6 +91,7 @@ void rf212_rx_begin(){
  */
 void pal_trx_reg_write(uint8_t addr, uint8_t data)
 {
+
     ENTER_CRITICAL_REGION();
 
     /* Prepare the command byte */
@@ -790,6 +790,7 @@ void send_frame(uint8_t *frame_tx, bool use_csma, bool tx_retries)
  */
 void pal_trx_frame_read(uint8_t *data, uint8_t length)
 {
+	int ret;
     ENTER_CRITICAL_REGION();
 
     /* Start SPI transaction by pulling SEL low */
@@ -798,13 +799,18 @@ void pal_trx_frame_read(uint8_t *data, uint8_t length)
     /* Send the command byte */
     spi_put(TRX_CMD_FR);
 
-    do
-    {
-        /* Do dummy read for initiating SPI read */
-        /* Upload the received byte in the user provided location */
-        *data++ = spi_put(SPI_DUMMY_VALUE);
-
-    } while (--length > 0);
+    spidev_global.buffer = data;
+    ret = spidev_sync_read(&spidev_global, length);
+    if (ret != length) {
+    	printk("*******pal_trx_frame_read error!, len: %d, read:%d********\n", length, ret);
+    }
+//    do
+//    {
+//        /* Do dummy read for initiating SPI read */
+//        /* Upload the received byte in the user provided location */
+//        *data++ = spi_put(SPI_DUMMY_VALUE);
+//
+//    } while (--length > 0);
 
     /* Stop the SPI transaction by setting SEL high */
     SS_HIGH();
@@ -830,12 +836,21 @@ void pal_trx_frame_write(uint8_t *data, uint8_t length)
     /* Send the command byte */
     spi_put(TRX_CMD_FW);
 
-    do
-    {
-        /* Write the user provided data in the transceiver data register */
-        spi_put(*data++);
+    spidev_global.buffer = data;
+    int i;
+//    for(i=0; i<length;i++) {
+//    	if(data+i == NULL)
+//    		printk(KERN_ALERT "NULLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL\n");
+//    }
 
-    } while (--length > 0);
+    spidev_sync_write(&spidev_global, length);
+
+//    do
+//    {
+//        /* Write the user provided data in the transceiver data register */
+//        spi_put(*data++);
+//
+//    } while (--length > 0);
 
     /* Stop the SPI transaction by setting SEL high */
     SS_HIGH();

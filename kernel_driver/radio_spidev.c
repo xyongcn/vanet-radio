@@ -192,6 +192,7 @@ wait_queue_head_t wait_irq;
 struct spi_device *spi_save;
 struct spidev_data spidev_global;
 struct spidev_data *spidev_test_global;
+struct spi_message spi_message_global;
 
 //wait_queue_head_t wait_irq;
 //struct cmd_queue *cmd_queue_head;
@@ -344,9 +345,34 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 		* Return: 0 if timed out, and positive (at least 1, or number of jiffies left
 		* till timeout) if completed.
 		*/
-		status = wait_for_completion_timeout(&done, 3*HZ);
+		status = wait_for_completion_timeout(&done, HZ);
 		if(status == 0){
 			printk(KERN_ALERT "*********************SPI TIMEOUT ERROR*****************\n");
+//			printk(KERN_ALERT "Reset SPI!\n");
+//			if (spi_save == NULL)
+//				printk(KERN_ALERT "Reset SPI ERROR!!!!\n");
+//			int tmp = ~SPI_MODE_MASK;
+//			tmp |= SPI_MODE_0;
+//			//tmp |= SPI_NO_CS;
+//			//tmp |= SPI_CS_HIGH;
+//			//tmp |= SPI_READY;
+//			spi_save->mode = (u8)tmp;
+//			spi_save->bits_per_word = BITS_PER_WORD;
+//			spi_save->max_speed_hz = SPI_SPEED;
+//			int ret = spi_setup(spi_save);
+//			if (ret < 0)
+//				printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
+//			else
+//				printk(KERN_ALERT "spi_setup succeed, spi:%x, spidev_global.spi:%x\n", spi_save, spidev_global.spi);
+//			spidev_complete(&done);
+//			DECLARE_COMPLETION_ONSTACK(done_retry);
+//			message->complete = spidev_complete;
+//			message->context = &done_retry;
+//			status = spi_async(spidev->spi, message);
+//			status = wait_for_completion_timeout(&done_retry, HZ);
+//			if(status == 0){
+//				printk(KERN_ALERT "*********************RETRY SPI TIMEOUT ERROR*****************\n");
+//			}
 		}
 		status = message->status;
 		if (status == 0)
@@ -369,13 +395,20 @@ spidev_sync_transfer(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t 
 			.rx_buf		= rx_buf,
 			.len		= len,
 			.cs_change	= 0,
+			.bits_per_word = 0,
+			.delay_usecs = 0,
+			.speed_hz = 0
 		};
 	struct spi_message	m;
-
 	spi_message_init(&m);
 	spi_message_add_tail(&t, &m);
+
+//	ret = spi_sync_locked(spidev, &m);
 	ret = spidev_sync(spidev, &m);
+//	spi_message_add_tail(&t, &spi_message_global);
+//	ret = spidev_sync(spidev, &spi_message_global);
 //	mutex_unlock(&mutex_spi);
+
 	return ret;
 }
 
@@ -556,18 +589,28 @@ static int spidev_message(struct spidev_data *spidev,
 			u_tmp->delay_usecs,
 			u_tmp->speed_hz ? : spidev->spi->max_speed_hz);
 #endif
+
+		printk(KERN_ALERT "  xfer len %zd %s%s%s%dbits %u usec %uHz\n",
+				u_tmp->len,
+				u_tmp->rx_buf ? "rx " : "",
+				u_tmp->tx_buf ? "tx " : "",
+				u_tmp->cs_change ? "cs " : "",
+				u_tmp->bits_per_word ? : spidev->spi->bits_per_word,
+				u_tmp->delay_usecs,
+				u_tmp->speed_hz ? : spidev->spi->max_speed_hz);
+
 		spi_message_add_tail(k_tmp, &msg);
 	}
 
-	//printk(KERN_ALERT "I'm here!!!!\n");
-/*	printk(KERN_ALERT "n_xfers: %d\n", n_xfers);
-	printk(KERN_ALERT "spi_ioc_transfer:\n");
-	printk(KERN_ALERT "len: %d\n",u_xfers->len);
-	printk(KERN_ALERT "speed_hz: %d\n",u_xfers->speed_hz);
-	printk(KERN_ALERT "delay_usecs: %d\n",u_xfers->delay_usecs);
-	printk(KERN_ALERT "bits_per_word: %d\n",u_xfers->bits_per_word);
-	printk(KERN_ALERT "cs_change: %d\n",u_xfers->cs_change);
-*/
+
+//	printk(KERN_ALERT "n_xfers: %d\n", n_xfers);//1
+//	printk(KERN_ALERT "spi_ioc_transfer:\n");
+//	printk(KERN_ALERT "len: %d\n",u_xfers->len);//1
+//	printk(KERN_ALERT "speed_hz: %d\n",u_xfers->speed_hz);//0
+//	printk(KERN_ALERT "delay_usecs: %d\n",u_xfers->delay_usecs);//0
+//	printk(KERN_ALERT "bits_per_word: %d\n",u_xfers->bits_per_word);//0
+//	printk(KERN_ALERT "cs_change: %d\n",u_xfers->cs_change);//0
+
 	status = spidev_sync(spidev, &msg);
 	if (status < 0)
 		goto done;
@@ -971,6 +1014,8 @@ static int spidev_probe(struct spi_device *spi)
 //			lnw_gpio_set_alt(SSpin, saved_muxing);
 		}
 		gpio_direction_output(SSpin, 1);
+
+
 //	} else {
 //		printk(KERN_ALERT "ERROR! invalid pin SSpin\n");
 //	}
@@ -982,6 +1027,12 @@ static int spidev_probe(struct spi_device *spi)
 //	//gpio_direction_output(MOSIpin, 0);
 //	//gpio_direction_input(MISOpin);
 //
+	/* PIN MUX */
+	set_pinmux();
+//	mdelay(1000);
+//	set_pinmux();
+
+
 	/* spi setup :
 	 * 		SPI_MODE_0
 	 * 		MSBFIRST
@@ -991,6 +1042,7 @@ static int spidev_probe(struct spi_device *spi)
 
 //	spin_lock_irq(&spidev->spi_lock);
 //	spin_unlock_irq(&spidev->spi_lock);
+	spi_message_init(&spi_message_global);
 
 	if (spi == NULL)
 		return -ESHUTDOWN;
@@ -999,15 +1051,19 @@ static int spidev_probe(struct spi_device *spi)
 
 	printk(KERN_ALERT "init: tmp= %x\n", tmp);
 	tmp |= SPI_MODE_0;
-	//tmp |= SPI_NO_CS;
+	tmp |= SPI_NO_CS;
+
 	//tmp |= SPI_CS_HIGH;
 	//tmp |= SPI_READY;
 	printk(KERN_ALERT "midd: tmp= %x\n", tmp);
 	tmp |= spi->mode & ~SPI_MODE_MASK;
+
 	printk(KERN_ALERT "after: tmp= %x\n", tmp);
-	spi->mode = (u8)tmp;
+//	spi->mode = (u8)tmp;
+	spi->mode = SPI_MODE_0;
 	spi->bits_per_word = BITS_PER_WORD;
 	spi->max_speed_hz = SPI_SPEED;
+	spi->mode &= ~SPI_LSB_FIRST;
 
 	ret = spi_setup(spi);
 	if (ret < 0)
@@ -1015,10 +1071,7 @@ static int spidev_probe(struct spi_device *spi)
 	else
 		printk(KERN_ALERT "spi_setup succeed, spi:%x, spidev_global.spi:%x\n", spi, spidev_global.spi);
 
-	/* PIN MUX */
-	set_pinmux();
-//	mdelay(1000);
-//	set_pinmux();
+
 //
 //	/* Waiting Queue */
 //	//init_waitqueue_head(&spi_wait_queue);
@@ -1177,11 +1230,12 @@ static int rf212_irq_handler(void* data){
 	         * TRX_END reason depends on if the trx is currently used for
 	         * transmission or reception.
 	         */
-	#if ((!defined RFD) && (!defined NOBEACON))
-	        if ((tal_state == TAL_TX_AUTO) || tal_beacon_transmission)
-	#else
-	        if (tal_state == TAL_TX_AUTO)
-	#endif
+//	#if ((!defined RFD) && (!defined NOBEACON))
+//	        if ((tal_state == TAL_TX_AUTO) || tal_beacon_transmission)
+//	#else
+//	        if (tal_state == TAL_TX_AUTO)
+//	#endif
+	    	if (tal_state == TAL_TX_AUTO)
 	        {
 	            /* Get the result and push it to the queue. */
 //	            handle_tx_end_irq();
@@ -1236,11 +1290,14 @@ static int rf212_cmd_queue_handler(void *data){
 	u8* data_ptr;
 //	u8 rssi;
 	memset(padding, 0, 64);
+	memset(tmp, 0, 130);
 	while(1/*!kthread_should_stop()*/){
 //		printk(KERN_ALERT "cmd_queue_handler:1\n");
 		if(isHandlingIrq) {
 			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
+
 			wait_event_interruptible(wait_irq, !isHandlingIrq);
+//			udelay(10);
 //			continue;
 //			mutex_lock(&mutex_irq_handling);
 		}
@@ -1301,16 +1358,16 @@ static int rf212_cmd_queue_handler(void *data){
 			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
 			send_frame(tmp, 1, 0);
 			//semaphore
-			printk(KERN_ALERT "waiting begin\n");
+//			printk(KERN_ALERT "waiting begin\n");
 			ret = down_timeout(&sem_tx_complete, 2*HZ);
-			printk(KERN_ALERT "waiting end\n");
+//			printk(KERN_ALERT "waiting end\n");
 			/* FREE THE SKB */
 			dev_kfree_skb(skb);
-			printk(KERN_ALERT "free skb\n");
+//			printk(KERN_ALERT "free skb\n");
 			if(ret == 0) {
 				//clear irq
 				rf212_clr_irq();
-				printk(KERN_ALERT "clr irq\n");
+//				printk(KERN_ALERT "clr irq\n");
 			}else {
 				printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!SEND ERROR, RESETING!!!!!!!!!!!!!!!!!\n");
 
@@ -1319,7 +1376,7 @@ static int rf212_cmd_queue_handler(void *data){
 			}
 
 			rf212_rx_begin();
-			printk(KERN_ALERT "rf212_rx_begin\n");
+//			printk(KERN_ALERT "rf212_rx_begin\n");
 			break;
 		default:
 			printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!CMD ERROR!!!!!!!!!!!!!!!!!\n");
@@ -1338,12 +1395,7 @@ int rf212_open(struct net_device *dev)
 
 
 	printk(KERN_ALERT "RF212_o2pen\n");
-	/* spi setup :
-	 * 		SPI_MODE_0
-	 * 		MSBFIRST
-	 * 		CS active low
-	 * 		IRQ
-	 */
+
 	if (spi_save == NULL)
 		return -ESHUTDOWN;
 
