@@ -1,6 +1,9 @@
 # vanet-radio
 radio channel hardware and software for vanet
 
+## Links for documents
+ 1. [Kernel driver developing log](https://github.com/xyongcn/vanet-radio/blob/master/kernel_driver/log.md)
+
 # Build an Intel Edison Image 
 1. IMPORTANT: SPI problem exists in the newly version of linux-yocto for Edison, we can only use the version 2.0:https://downloadcenter.intel.com/download/24909
 	* spi problem: The spi will fall into an infinite loop when the spi speed exceeds a threshold (about 100KHz)[1-3]
