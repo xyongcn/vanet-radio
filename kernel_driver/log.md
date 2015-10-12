@@ -1,3 +1,8 @@
+# VANET射频模块开发日志
+本文件描述在射频模块开发过程中遇到的问题和解决过程。
+
+## 201510112 Edison板子的spi模块工作不稳定问题和解决方法
+
 1. source poky/oe-init-build-env
 2. bitbake virtual/kernel -c menuconfig 会开始下载内核
 3. config文件位于edison-src/device-software/meta-edison/recipes-kernel/linux/files
