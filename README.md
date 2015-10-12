@@ -3,6 +3,12 @@ radio channel hardware and software for vanet
 
 # Build an Intel Edison Image 
 1. IMPORTANT: SPI problem exists in the newly version of linux-yocto for Edison, we can only use the version 2.0:https://downloadcenter.intel.com/download/24909
+	* spi problem: The spi will fall into an infinite loop when the spi speed exceeds a threshold (about 100KHz)[1-3]
+	* [1] https://communities.intel.com/thread/75511
+	* [2] https://communities.intel.com/thread/78149?start=15&tstart=0
+	* [3] https://communities.intel.com/message/314820#314820
+	* In [3], the solution will end up with malfunction of Arduino spi and rf.ko.
+	* Untill 20151012, the only usable system is the version 2.0.
 1. Follow the section 2 of instruction from http://download.intel.com/support/edison/sb/edisonbsp_ug_331188005.pdf
 2. After extract edison-src.tgz (before step 3), do
     * vi edison-src/device-software/meta-edison-distro/recipes-connectivity/wpa_supplicant/wpa-supplicant_2.1.bbappend
