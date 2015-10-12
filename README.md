@@ -1,7 +1,8 @@
 # vanet-radio
 radio channel hardware and software for vanet
 
-# Build an Intel Edison Image
+# Build an Intel Edison Image 
+1. IMPORTANT: SPI problem exist in the newly version of linux-yocto for Edison, we can only use the version 2.0:https://downloadcenter.intel.com/download/24909
 1. Follow the section 2 of instruction from http://download.intel.com/support/edison/sb/edisonbsp_ug_331188005.pdf
 2. After extract edison-src.tgz (before step 3), do
     * vi edison-src/device-software/meta-edison-distro/recipes-connectivity/wpa_supplicant/wpa-supplicant_2.1.bbappend
