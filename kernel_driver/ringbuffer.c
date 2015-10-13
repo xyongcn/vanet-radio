@@ -52,7 +52,7 @@ void copy_cmd_without_dataField(struct cmd *dest, struct cmd *src) {
 /* 压入数据 */
 int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_)
 {
-	printk(KERN_ALERT "rbuf_enqueue\n");
+//	printk(KERN_ALERT "rbuf_enqueue\n");
 //	int ret;
 	//ppp(cmd_->data, cmd_->len);
 
@@ -79,7 +79,7 @@ int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_)
  * */
 int rbuf_insert_readcmd(rbuf_t *rb)
 {
-	printk(KERN_ALERT "rbuf_insert_readcmd\n");
+//	printk(KERN_ALERT "rbuf_insert_readcmd\n");
 //	int ret;
 //	int tmp;
 	//ppp(cmd_->data, cmd_->len);
@@ -127,7 +127,7 @@ int rbuf_insert_readcmd(rbuf_t *rb)
 /* 取出数据 */
 struct cmd* rbuf_dequeue(rbuf_t *rb)
 {
-	printk(KERN_ALERT "rbuf_dequeue\n");
+//	printk(KERN_ALERT "rbuf_dequeue\n");
 	struct cmd *cmd_;
 //	int ret = 0;
 
@@ -152,6 +152,11 @@ struct cmd* rbuf_dequeue(rbuf_t *rb)
 bool rbuf_full(rbuf_t *c)
 {
 	return (c->size == c->capacity);
+}
+
+/*  */
+bool rbuf_almost_empty(rbuf_t *c){
+	return (c->size < 10);
 }
 
 /* 判断缓冲区是否为空 */
@@ -190,8 +195,9 @@ bool rbuf_peep_first_isREADCMD(rbuf_t *rb)
 
 void rbuf_print_status(rbuf_t *rb) {
 	spin_lock(&rb->lock);
-	printk(KERN_ALERT "next_in: %d\n", rb->next_in);
-	printk(KERN_ALERT "next_out %d\n", rb->next_out);
+	printk(KERN_ALERT "size: %d\n", rb->size);
+//	printk(KERN_ALERT "next_in: %d\n", rb->next_in);
+//	printk(KERN_ALERT "next_out %d\n", rb->next_out);
 	spin_unlock(&rb->lock);
 //	printk(KERN_ALERT "", );
 }

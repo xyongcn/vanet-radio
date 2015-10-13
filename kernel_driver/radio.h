@@ -67,6 +67,7 @@ struct module_priv
 
 //inline ssize_t si4463_sync_transfer(struct spidev_data *spidev, size_t len);
 inline ssize_t spidev_sync_transfer(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t len);
+ssize_t spidev_sync_transfer_nosleep(struct spidev_data *spidev, u8 *tx_buf, u8 *rx_buf, size_t len);
 inline ssize_t spidev_sync_read(struct spidev_data *spidev, size_t len);
 inline ssize_t spidev_sync_write(struct spidev_data *spidev,  size_t len);
 //inline ssize_t spidev_sync_write_nosleep(struct spidev_data *spidev,  size_t len);

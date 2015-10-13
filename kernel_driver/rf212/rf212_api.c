@@ -837,7 +837,7 @@ void pal_trx_frame_write(uint8_t *data, uint8_t length)
     spi_put(TRX_CMD_FW);
 
     spidev_global.buffer = data;
-    int i;
+//    int i;
 //    for(i=0; i<length;i++) {
 //    	if(data+i == NULL)
 //    		printk(KERN_ALERT "NULLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL\n");

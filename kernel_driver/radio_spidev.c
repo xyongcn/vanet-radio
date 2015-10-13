@@ -107,7 +107,7 @@ static int module_install_global = 0;
 module_param(module_install_global, int, S_IRUGO);
 MODULE_PARM_DESC(module_install_global, "module installed");
 
-static int mtu_global = 50;
+static int mtu_global = 110;
 module_param(mtu_global, int, S_IRUGO);
 MODULE_PARM_DESC(mtu_global, "MAC layer MTU");
 
@@ -161,16 +161,6 @@ struct semaphore sem_irq;
 DEFINE_MUTEX(mutex_irq_handling);
 DEFINE_MUTEX(mutex_spi);
 
-
-/* TX withdraw timer */
-struct timer_list tx_withdraw_timer;
-static bool tx_approved = 1;
-static void withdraw(unsigned long data)
-{
-	tx_approved = 1;
-    printk("tx is now approved\n");
-}
-
 #define IRQ_NET_CHIP  20//需要根据硬件确定
 
 
@@ -180,7 +170,25 @@ struct net_device *global_net_devs;
 //struct net_device *tmp_devs;
 
 static bool isSending = 0;
-static bool isHandlingIrq = 0;
+struct int_with_lock{
+	spinlock_t lock;
+	int data;
+};
+
+inline static int read_int_with_lock(struct int_with_lock *t){
+	int tmp;
+	spin_lock(&t->lock);
+	tmp = t->data;
+	spin_unlock(&t->lock);
+	return tmp;
+}
+inline static void write_int_with_lock(struct int_with_lock *t, int data){
+	spin_lock(&t->lock);
+	t->data = data;
+	spin_unlock(&t->lock);
+}
+
+struct int_with_lock isHandlingIrq;
 static bool preamble_detect = 0;
 
 wait_queue_head_t wait_irq;
@@ -203,6 +211,25 @@ struct task_struct *irq_handler_tsk;
 /* chip status for rf212 */
 extern tal_trx_status_t tal_trx_status;
 extern tal_state_t tal_state;
+
+
+/* TX withdraw timer */
+struct timer_list tx_withdraw_timer;
+static bool tx_approved = 1;
+static void withdraw(unsigned long data)
+{
+	tx_approved = 1;
+    printk(KERN_ALERT "tx is now approved\n");
+}
+
+/* netif queue restart timer */
+struct timer_list netq_restart_timer;
+static void netq_restart(unsigned long data)
+{
+	netif_wake_queue(global_net_devs);
+    printk(KERN_ALERT "Netif Queue is opening\n");
+    rbuf_print_status(&cmd_ringbuffer);
+}
 
 /**
  * Function points to the threads
@@ -917,6 +944,8 @@ static int spidev_probe(struct spi_device *spi)
 	spi_save = spi;
 	spidev_global.spi = spi;
 	spin_lock_init(&spidev_global.spi_lock);
+	spin_lock_init(&isHandlingIrq.lock);
+	isHandlingIrq.data = 0;
 	mutex_init(&spidev_global.buf_lock);
 
 	printk(KERN_ALERT "spidev_probe!\n");
@@ -1085,6 +1114,10 @@ static int spidev_probe(struct spi_device *spi)
 	tx_withdraw_timer.function = withdraw;
 	tx_withdraw_timer.data = 0;
 
+	setup_timer(&netq_restart_timer, netq_restart, 0);
+	netq_restart_timer.expires = jiffies + HZ * 3; //jiffies + HZ/2 are 0.5s
+	netq_restart_timer.function = netq_restart;
+	netq_restart_timer.data = 0;
 
 
 	return status;
@@ -1177,7 +1210,7 @@ static void irq_tx_complete() {
 		tal_csma_state = CSMA_IDLE;
 	}
 
-	printk(KERN_ALERT "TX_COMPLETE\n");
+//	printk(KERN_ALERT "TX_COMPLETE\n");
 //	mutex_unlock(&mutex_tx_complete);
 }
 static void irq_rx(/*void *dev_id*/){
@@ -1196,9 +1229,9 @@ static void irq_rx(/*void *dev_id*/){
 }
 static irqreturn_t rf212_interrupt (int irq, void *dev_id)
 {
-	isHandlingIrq = 1;
+	write_int_with_lock(&isHandlingIrq, 1);
 
-	printk(KERN_ALERT "=====IRQ=====\n");
+//	printk(KERN_ALERT "=====IRQ=====\n");
 //	printk(KERN_ALERT "sen_irq before: %d\n", sem_irq.count);
 	if(sem_irq.count > 0)
 		printk(KERN_ALERT "!!!!!!!!!sen_irq > 0\n");
@@ -1207,6 +1240,8 @@ static irqreturn_t rf212_interrupt (int irq, void *dev_id)
 //	mutex_unlock(&mutex_irq);
 	return IRQ_HANDLED;
 }
+
+
 static int rf212_irq_handler(void* data){
 	bool tx_complete_flag;
 	bool rx_flag;
@@ -1217,12 +1252,12 @@ static int rf212_irq_handler(void* data){
 	while(1/*!kthread_should_stop()*/) {
 		tx_complete_flag = 0;
 		rx_flag = 0;
-		isHandlingIrq = 0;
+		write_int_with_lock(&isHandlingIrq, 0);
 
 		down(&sem_irq);
 	    trx_irq_cause = (trx_irq_reason_t)pal_trx_reg_read(RG_IRQ_STATUS);
 
-	    printk(KERN_ALERT "trx_irq_cause: %x", trx_irq_cause);
+//	    printk(KERN_ALERT "trx_irq_cause: %x", trx_irq_cause);
 
 	    if (trx_irq_cause & TRX_IRQ_TRX_END)
 	    {
@@ -1267,14 +1302,13 @@ static int rf212_irq_handler(void* data){
 	 		irq_tx_complete();
 	 		rx_start();
 	 	}
-	 	isHandlingIrq = 0;
 //error:
 		//Clear IRQ, rx process will clear irq.
 		if(!rx_flag && !tx_complete_flag && !preamble_detect){
 
 		}
-		isHandlingIrq = 0;
-		wake_up_interruptible(&wait_irq);
+		write_int_with_lock(&isHandlingIrq, 0);
+//		wake_up_interruptible(&wait_irq);
 	}
 	return -1;
 }
@@ -1285,46 +1319,57 @@ static int rf212_cmd_queue_handler(void *data){
 	u8 tmp_len;
 	u8 tmp[130];
 //	u8 rx[64];
-	u8 padding[64];
+//	u8 padding[64];
 	struct sk_buff *skb;
 	u8* data_ptr;
 //	u8 rssi;
-	memset(padding, 0, 64);
+//	memset(padding, 0, 64);
 	memset(tmp, 0, 130);
 	while(1/*!kthread_should_stop()*/){
 //		printk(KERN_ALERT "cmd_queue_handler:1\n");
-		if(isHandlingIrq) {
-			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
+		if(read_int_with_lock(&isHandlingIrq)) {
+//			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
 
-			wait_event_interruptible(wait_irq, !isHandlingIrq);
-//			udelay(10);
-//			continue;
+//			wait_event_interruptible(wait_irq, !isHandlingIrq);
+			udelay(10);
+			continue;
 //			mutex_lock(&mutex_irq_handling);
+		}
+
+		if(rbuf_almost_empty(&cmd_ringbuffer) && netif_queue_stopped(global_net_devs)) {
+
+//			printk(KERN_ALERT "%d\n",netif_xmit_frozen_or_stopped(global_net_devs));
+//			printk(KERN_ALERT "%d\n",netif_xmit_stopped(global_net_devs));
+//			printk(KERN_ALERT "%d\n",netif_queue_stopped(global_net_devs));
+
+
+			netif_wake_queue(global_net_devs);
+			printk(KERN_ALERT "Netif Queue is awaaaaaak!!\n");
+			rbuf_print_status(&cmd_ringbuffer);
 		}
 		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
 //		mutex_unlock(&mutex_irq_handling);
 		switch(cmd_->type){
 		case READFIFO_CMD:
-			printk(KERN_ALERT "+++++++++++++++++++++++++++READFIFO_CMD+++++++++++++++++++++++++++\n");
+//			printk(KERN_ALERT "+++++++++++++++++++++++++++READFIFO_CMD+++++++++++++++++++++++++++\n");
 
 	        pal_trx_frame_read(&tmp_len, 1);
 	        //len += 2;
 //	        Serial.print("len:");
 //	        Serial.println(len);
 	        pal_trx_frame_read(tmp, tmp_len);
-
-			printk(KERN_ALERT "rf212: Len: %d\n", tmp_len);
+//	        ppp(tmp+1, tmp[0]-2);
+	        netstack_rx(global_net_devs,tmp[0]-2,tmp+1);
+//			printk(KERN_ALERT "rf212: Len: %d\n", tmp[0]-2);
 //			clr_packet_rx_pend();
 //			rx_start();
 			rf212_clr_irq();
-			netstack_rx(global_net_devs,tmp[0]-2,tmp+1);
-
 
 			break;
 		case SEND_CMD:
-			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
+//			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
 
-			if(/*preamble_detect ||*/ isHandlingIrq || rbuf_peep_first_isREADCMD(&cmd_ringbuffer)){
+			if(/*preamble_detect ||*/  rbuf_peep_first_isREADCMD(&cmd_ringbuffer)){
 				/*
 				 * we cannot send when receiving.
 				 */
@@ -1355,7 +1400,7 @@ static int rf212_cmd_queue_handler(void *data){
 
 //			ppp(tmp, tmp_len+1);
 
-			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
+//			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
 			send_frame(tmp, 1, 0);
 			//semaphore
 //			printk(KERN_ALERT "waiting begin\n");
@@ -1483,6 +1528,14 @@ int rf212_open(struct net_device *dev)
 int rf212_tx(struct sk_buff *skb, struct net_device *dev){
 //    int len;
 //    u8 *data;
+	if (rbuf_full(&cmd_ringbuffer))
+	{
+		netif_stop_queue(global_net_devs);
+		printk(KERN_ALERT "Netif Queue is closing\n");
+		rbuf_print_status(&cmd_ringbuffer);
+//		add_timer(&netq_restart_timer);
+		return -1;
+	}
     struct module_priv *priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
 
 //    len = skb->len;// < ETH_ZLEN ? ETH_ZLEN : skb->len;
@@ -1497,7 +1550,7 @@ int rf212_tx(struct sk_buff *skb, struct net_device *dev){
 //	{
 //        printk("Bad packet! It's size is less then 34!\n");
 //        return;
-//    }
+//    }ndo_start_xmit
     /* record the transmitted packet status */
     priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
     priv->stats.tx_packets++;
@@ -1590,8 +1643,7 @@ int rf212_change_mtu(struct net_device *dev, int new_mtu)
 
 static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 {
-	isHandlingIrq = 1;
-
+	write_int_with_lock(&isHandlingIrq, 1);
 	printk(KERN_ALERT "=====IRQ=====\n");
 //	printk(KERN_ALERT "sen_irq before: %d\n", sem_irq.count);
 	if(sem_irq.count > 0)
@@ -1611,7 +1663,7 @@ static int si4463_irq_handler(void* data){
 	while(1/*!kthread_should_stop()*/) {
 		tx_complete_flag = 0;
 		rx_flag = 0;
-		isHandlingIrq = 0;
+		write_int_with_lock(&isHandlingIrq, 0);
 
 		down(&sem_irq);
 //		mutex_lock(&mutex_irq_handling);
@@ -1675,7 +1727,8 @@ static int si4463_irq_handler(void* data){
 	 		irq_tx_complete();
 	 		rx_start();
 	 	}
-	 	isHandlingIrq = 0;
+		write_int_with_lock(&isHandlingIrq, 0);
+
 error:
 		//Clear IRQ, rx process will clear irq.
 		if(!rx_flag && !tx_complete_flag && !preamble_detect){
@@ -1696,7 +1749,7 @@ error:
 //			printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
 			clr_interrupt();
 		}
-		isHandlingIrq = 0;
+		write_int_with_lock(&isHandlingIrq, 0);
 //		mutex_unlock(&mutex_irq_handling);
 	}
 	return -1;
@@ -1716,8 +1769,8 @@ static int si4463_cmd_queue_handler(void *data){
 	memset(padding, 0, 64);
 	while(1/*!kthread_should_stop()*/){
 //		printk(KERN_ALERT "cmd_queue_handler:1\n");
-		if(isHandlingIrq) {
-			mdelay(5);
+		if(read_int_with_lock(&isHandlingIrq)) {
+			udelay(5);
 //			printk(KERN_ALERT "isHandlingIrq: %d\n", isHandlingIrq);
 			continue;
 //			mutex_lock(&mutex_irq_handling);
@@ -1776,7 +1829,7 @@ static int si4463_cmd_queue_handler(void *data){
 //			printk(KERN_ALERT "When Sending, rssi value: %x\n", tmp[3]);
 //			printk(KERN_ALERT "rssi: %d\n", rssi);
 //			printk(KERN_ALERT "preamble_detect: %d\n", preamble_detect);
-			if(/*preamble_detect ||*/ isHandlingIrq || rssi/*rssi!=0*/ || rbuf_peep_first_isREADCMD(&cmd_ringbuffer)){
+			if(/*preamble_detect ||*/ read_int_with_lock(&isHandlingIrq) || rssi/*rssi!=0*/ || rbuf_peep_first_isREADCMD(&cmd_ringbuffer)){
 				/*
 				 * we cannot send when receiving.
 				 */

@@ -78,6 +78,8 @@ struct cmd * rbuf_dequeue(rbuf_t *rb);
 /* 判断缓冲区是否为满 */
 bool rbuf_full(rbuf_t *rb);
 
+bool rbuf_almost_empty(rbuf_t *c);
+
 /* 判断缓冲区是否为空 */
 bool rbuf_empty(rbuf_t *rb);
 
