@@ -45,6 +45,7 @@ make install
 
 ####执行配置
 > CC=arm-none-linux-gnueabi-gcc ../dist/configure --with-mutex=ARM/gcc-assembly --prefix=/opt/linuxdb --build=x86_64 --host=arm-none-linux-gnueabi -enable-cxx --enable-stl --enable-tcl --with-tcl=/opt/linuxtcl/lib
+
 ####执行编译与安装
 >make  
 make install
