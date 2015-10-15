@@ -52,6 +52,7 @@ make install
 ###（4）oasys的交叉编译
 ####进入编译目录
 >cd oasys
+
 ####执行配置
 >CC=arm-none-linux-gnueabi-gcc ./configure --build=x86_64 --host=arm-none-linux-gnueabi  --with-db=/opt/linuxdb --with-tcl=/opt/linuxtcl
 
@@ -79,6 +80,7 @@ make install
 ###（6）DTN2的交叉编译
 ####进入编译目录
 >cd DTN2
+
 ####生成配置文件
 >./build-configure.sh
 
