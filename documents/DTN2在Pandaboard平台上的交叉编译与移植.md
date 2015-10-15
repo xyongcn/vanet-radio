@@ -35,6 +35,7 @@ collect2: ld returned 1 exit status
 ####执行编译与安装
 >make  
 make install
+
 ###（3）Berkeley DB的交叉编译
 ####进入编译目录
 >cd db-5.3.28/build_unix
@@ -43,6 +44,7 @@ make install
 ####执行编译与安装
 >make  
 make install
+
 ###（4）oasys的交叉编译
 ####进入编译目录
 >cd oasys
@@ -63,6 +65,7 @@ export LD=${CROSS}-ld
 export AS=${CROSS}-as  
 export AR=${CROSS}-ar  
 ./Configure -DOPENSSL_NO_HEARTBEATS --openssldir=/home/openssl/ shared os/compiler:arm-none-linux-gnueabi-
+
 ####执行编译与安装
 >make  
 make install
@@ -84,6 +87,7 @@ make install
 \#   warning Using hardcoded value for IP_TRANSPARENT as libc headers do not define it.  
 \#   define IP`_`TRANSPARENT 19  
 \#endif  
+
 ####修改apps/dtntunnel/UDPTunnel.cc文件
 在头部加入
 >\#ifndef IP`_`TRANSPARENT  
@@ -98,6 +102,7 @@ make install
 \#   warning Using hardcoded value for IP_RECVORIGDSTADDR as libc headers do not define it.  
 \#   define IP`_`RECVORIGDSTADDR IP`_`ORIGDSTADDR  
 \#endif
+
 ####执行编译
 >make
 
