@@ -69,6 +69,7 @@ export AR=${CROSS}-ar
 ####执行编译与安装
 >make  
 make install
+
 ###（6）DTN2的交叉编译
 ####进入编译目录
 >cd DTN2
@@ -157,12 +158,14 @@ dtnd位于DTN2目录中的daemon目录下
 ####将libc-2.11.1.so复制到/system/lib目录下
 建立连接
 >ln -s libc-2.11.1.so libc.so.6
+
 ###（3）DTN2相关配置
 ####将daemon目录下的dtnd以及apps目录下需要用到的程序复制到开发板上  
 ####将dtn.conf文件放置在/etc/目录下  
 ####添加默认网关地址  
 命令形式：
 >route add default gw 192.168.1.1 dev adhoc0
+
 ####修改系统时间
 命令形式：
 >date -s “20150922.220000”
