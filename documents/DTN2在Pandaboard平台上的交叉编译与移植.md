@@ -7,6 +7,7 @@
 使用如下版本的交叉编译器进行代码编译。  
 > arm-none-linux-gnueabi  
 > gcc version 4.4.1 (Sourcery G++ lite 2010q1-202)
+
 ####配置交叉编译器：
 进入到交叉编译器的bin目录下，执行命令  
 > export PATH=`pwd`:$PATH
@@ -20,6 +21,7 @@
 ###（2）TCL的交叉编译
 ####进入编译目录
 >cd tcl8.5.18/unix
+
 ####执行命令
 > export tcl`_`cv`_`strtod_buggy=1  
 export ac`_`cv`_`func`_`strtod=yes
@@ -32,6 +34,7 @@ strtod.o:strtod.c:(.text+0x0): first defined here
 collect2: ld returned 1 exit status
 ####执行配置
 > CC=arm-none-linux-gnueabi-gcc ./configure --prefix=/opt/linuxtcl --build='uname–m' --host=arm-none-linux-gnueabi --cache-file=cache`_`file`_`o
+
 ####执行编译与安装
 >make  
 make install
@@ -39,6 +42,7 @@ make install
 ###（3）Berkeley DB的交叉编译
 ####进入编译目录
 >cd db-5.3.28/build_unix
+
 ####执行配置
 > CC=arm-none-linux-gnueabi-gcc ../dist/configure --with-mutex=ARM/gcc-assembly --prefix=/opt/linuxdb --build=x86_64 --host=arm-none-linux-gnueabi -enable-cxx --enable-stl --enable-tcl --with-tcl=/opt/linuxtcl/lib
 ####执行编译与安装
@@ -50,8 +54,10 @@ make install
 >cd oasys
 ####执行配置
 >CC=arm-none-linux-gnueabi-gcc ./configure --build=x86_64 --host=arm-none-linux-gnueabi  --with-db=/opt/linuxdb --with-tcl=/opt/linuxtcl
+
 ####执行编译
 >make
+
 ###（5）Openssl的交叉编译
 ####下载并交叉编译openssl
 下载openssl源代码  
@@ -79,9 +85,11 @@ make install
 有可能需要安装autoconf工具
 ####执行配置
 >CC=arm-none-linux-gnueabi-gcc ./configure --disable-ecl --disable-edp --build='uname -m' --host=arm-none-linux-gnueabi
+
 ####修改Rules.make文件
 在`INCFLAGS`后加入
 >-I/home/openssl/include/
+
 ####修改apps/dtntunnel/TCPTunnel.cc文件
 在头部加入  
 >\#ifndef IP`_`TRANSPARENT  
