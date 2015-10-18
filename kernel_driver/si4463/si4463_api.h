@@ -4,7 +4,10 @@
 
 #include <linux/types.h>  /* size_t */
 
-#define MAX_PACKET_LENGTH 64
+#define MAX_PACKET_LENGTH 250
+#define TX_THRESHOLD 54
+#define RX_THRESHOLD 54
+#define MAX_FIFO_SIZE 128
 
 /*
  * FUNCTIONS
@@ -38,6 +41,8 @@ void clr_packet_sent_pend(void);
 void clr_packet_rx_pend(void);
 void clr_preamble_detect_pend(void);
 //void clr_interrupt_async(void);
+void clr_txfifo_almost_empty_pend(void);
+void clr_rxfifo_almost_full_pend(void);
 
 void enable_chip_irq(void);
 //void enable_tx_interrupt(void);		// 使能发射中断
@@ -45,7 +50,7 @@ void enable_chip_irq(void);
 void tx_start(void);
 void rx_start(void);					// 开始接收
 void tx_start_1B(void);
-void tx_change_variable_len(u16 len);
+void tx_set_packet_len(u16 packetlen);
 
 void change_state2tx_tune(void);
 
@@ -58,8 +63,8 @@ void get_modem_status(u8 *rx);
 void get_fifo_info(u8 * rx);
 int get_CCA_latch(void);
 bool get_CCA(void);
-void get_interrupt_status(void);
-
+bool is_tx_fifo_almost_empty(void);
+void get_interrupt_status(u8* p2);
 
 
 //-----------------------------------------------------------------------------

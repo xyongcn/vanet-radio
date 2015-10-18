@@ -107,7 +107,7 @@ static int module_install_global = 0;
 module_param(module_install_global, int, S_IRUGO);
 MODULE_PARM_DESC(module_install_global, "module installed");
 
-static int mtu_global = 110;
+static int mtu_global = 2000;
 module_param(mtu_global, int, S_IRUGO);
 MODULE_PARM_DESC(mtu_global, "MAC layer MTU");
 
@@ -148,9 +148,12 @@ MODULE_PARM_DESC(mtu_global, "MAC layer MTU");
 #include <linux/semaphore.h> /* semphone for the TX */
 #include <linux/mutex.h>
 #include <linux/timer.h>
-/* semphone for the TX */
-//DEFINE_SEMAPHORE(sem_tx_complete);
+/***
+ *  semphone for the TX / RX
+ ***/
 struct semaphore sem_tx_complete;
+struct semaphore sem_tx_wait_fifo;
+struct semaphore sem_rx_wait_fifo;
 //DEFINE_MUTEX(mutex_tx_complete);
 /* semphone for the SPI */
 //DEFINE_SEMAPHORE(sem_spi);
@@ -375,31 +378,6 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 		status = wait_for_completion_timeout(&done, HZ);
 		if(status == 0){
 			printk(KERN_ALERT "*********************SPI TIMEOUT ERROR*****************\n");
-//			printk(KERN_ALERT "Reset SPI!\n");
-//			if (spi_save == NULL)
-//				printk(KERN_ALERT "Reset SPI ERROR!!!!\n");
-//			int tmp = ~SPI_MODE_MASK;
-//			tmp |= SPI_MODE_0;
-//			//tmp |= SPI_NO_CS;
-//			//tmp |= SPI_CS_HIGH;
-//			//tmp |= SPI_READY;
-//			spi_save->mode = (u8)tmp;
-//			spi_save->bits_per_word = BITS_PER_WORD;
-//			spi_save->max_speed_hz = SPI_SPEED;
-//			int ret = spi_setup(spi_save);
-//			if (ret < 0)
-//				printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
-//			else
-//				printk(KERN_ALERT "spi_setup succeed, spi:%x, spidev_global.spi:%x\n", spi_save, spidev_global.spi);
-//			spidev_complete(&done);
-//			DECLARE_COMPLETION_ONSTACK(done_retry);
-//			message->complete = spidev_complete;
-//			message->context = &done_retry;
-//			status = spi_async(spidev->spi, message);
-//			status = wait_for_completion_timeout(&done_retry, HZ);
-//			if(status == 0){
-//				printk(KERN_ALERT "*********************RETRY SPI TIMEOUT ERROR*****************\n");
-//			}
 		}
 		status = message->status;
 		if (status == 0)
@@ -617,14 +595,14 @@ static int spidev_message(struct spidev_data *spidev,
 			u_tmp->speed_hz ? : spidev->spi->max_speed_hz);
 #endif
 
-		printk(KERN_ALERT "  xfer len %zd %s%s%s%dbits %u usec %uHz\n",
-				u_tmp->len,
-				u_tmp->rx_buf ? "rx " : "",
-				u_tmp->tx_buf ? "tx " : "",
-				u_tmp->cs_change ? "cs " : "",
-				u_tmp->bits_per_word ? : spidev->spi->bits_per_word,
-				u_tmp->delay_usecs,
-				u_tmp->speed_hz ? : spidev->spi->max_speed_hz);
+//		printk(KERN_ALERT "  xfer len %zd %s%s%s%dbits %u usec %uHz\n",
+//				u_tmp->len,
+//				u_tmp->rx_buf ? "rx " : "",
+//				u_tmp->tx_buf ? "tx " : "",
+//				u_tmp->cs_change ? "cs " : "",
+//				u_tmp->bits_per_word ? : spidev->spi->bits_per_word,
+//				u_tmp->delay_usecs,
+//				u_tmp->speed_hz ? : spidev->spi->max_speed_hz);
 
 		spi_message_add_tail(k_tmp, &msg);
 	}
@@ -1201,7 +1179,7 @@ void netstack_rx(struct net_device *dev, int len, unsigned char *buf)
     netif_rx(skb);
     return;
 }
-static void irq_tx_complete() {
+inline static void irq_tx_complete() {
 //
 	up(&sem_tx_complete);
 	isSending = 0;
@@ -1213,7 +1191,11 @@ static void irq_tx_complete() {
 //	printk(KERN_ALERT "TX_COMPLETE\n");
 //	mutex_unlock(&mutex_tx_complete);
 }
-static void irq_rx(/*void *dev_id*/){
+
+inline static void irq_fifo_almost_empty() {
+	up(&sem_tx_wait_fifo);
+}
+inline static void irq_rx(/*void *dev_id*/){
 //	printk(KERN_ALERT "RECV\n");
 //	tmp_devs = (struct net_device *) dev_id;
 	//cmd_queue_head->count++;
@@ -1657,11 +1639,13 @@ static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 static int si4463_irq_handler(void* data){
 	bool tx_complete_flag;
 	bool rx_flag;
+	bool tx_fifo_almost_empty_flag;
 	u8 ph_pend;
 	u8 md_status;
 
 	while(1/*!kthread_should_stop()*/) {
 		tx_complete_flag = 0;
+		tx_fifo_almost_empty_flag = 0;
 		rx_flag = 0;
 		write_int_with_lock(&isHandlingIrq, 0);
 
@@ -1699,8 +1683,13 @@ static int si4463_irq_handler(void* data){
 //			preamble_detect = 1;
 //			clr_preamble_detect_pend();
 //		}
+		//Only TX_FIFO_ALMOST_EMPTY interrupt happen. And no PACKET_SENT interrupt happen.
+		if((ph_pend & 0x22) == 0x02) {
+			irq_fifo_almost_empty();
+			tx_fifo_almost_empty_flag = 1;
+		}
 		//Check Tx complete
-		if((ph_pend & 0x20) == 0x20) {
+		if((ph_pend & 0x22) == 0x22 || (ph_pend & 0x22) == 0x20) {
 			irq_tx_complete();
 			tx_complete_flag = 1;
 		}
@@ -1714,7 +1703,7 @@ static int si4463_irq_handler(void* data){
 
 
 //		printk(KERN_ALERT "tx_complete_flag: %d, isSending: %d\n",tx_complete_flag, isSending);
-	 	if (!tx_complete_flag && isSending) {
+	 	if (!tx_complete_flag && !tx_fifo_almost_empty_flag && isSending) {
 	 		/* *
 	 		 * recv a packet when a sending is wait for complete.
 	 		 * the tx send complete irq	will be vanished
@@ -1731,7 +1720,7 @@ static int si4463_irq_handler(void* data){
 
 error:
 		//Clear IRQ, rx process will clear irq.
-		if(!rx_flag && !tx_complete_flag && !preamble_detect){
+		if(!rx_flag && !tx_complete_flag && !preamble_detect && !tx_fifo_almost_empty_flag){
 //			printk(KERN_ALERT "(((((((((((((((1)))))))))))))\n");
 //			get_interrupt_status();
 //			printk(KERN_ALERT "(((((((((((((((2)))))))))))))\n");
@@ -1739,11 +1728,11 @@ error:
 //			printk(KERN_ALERT "(((((((((((((((3)))))))))))))\n");
 //			get_interrupt_status();
 //			printk(KERN_ALERT "(((((((((((((((4)))))))))))))\n");
-			printk(KERN_ALERT "interrupt_status:::\n");
-			get_interrupt_status();
+//			printk(KERN_ALERT "interrupt_status:::\n");
+//			get_interrupt_status();
 //			printk(KERN_ALERT "PH_status:::\n");
 //			read_frr_a(&ph_pend);
-//			printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
+			printk(KERN_ALERT "ERROR PH_PEND: %x\n", ph_pend);
 //			set_frr_ctl();
 //			read_frr_a(&ph_pend);
 //			printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
@@ -1759,13 +1748,14 @@ static int si4463_cmd_queue_handler(void *data){
 	struct cmd *cmd_;
 	int i;
 	int ret;
-	u8 tmp_len;
+	u8 packet_len;
 	u8 tmp[10];
 	u8 rx[64];
 	u8 padding[64];
 	u8 rssi;
-	struct sk_buff *skb;
-	u8* data_ptr;
+//	struct sk_buff *skb;
+	u8 data_ptr = 0;
+	u8* data_head;
 	memset(padding, 0, 64);
 	while(1/*!kthread_should_stop()*/){
 //		printk(KERN_ALERT "cmd_queue_handler:1\n");
@@ -1775,6 +1765,19 @@ static int si4463_cmd_queue_handler(void *data){
 			continue;
 //			mutex_lock(&mutex_irq_handling);
 		}
+
+		if(rbuf_almost_empty(&cmd_ringbuffer) && netif_queue_stopped(global_net_devs)) {
+
+//			printk(KERN_ALERT "%d\n",netif_xmit_frozen_or_stopped(global_net_devs));
+//			printk(KERN_ALERT "%d\n",netif_xmit_stopped(global_net_devs));
+//			printk(KERN_ALERT "%d\n",netif_queue_stopped(global_net_devs));
+
+
+			netif_wake_queue(global_net_devs);
+//			printk(KERN_ALERT "Netif Queue is awaaaaaak!!\n");
+//			rbuf_print_status(&cmd_ringbuffer);
+		}
+
 		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
 //		mutex_unlock(&mutex_irq_handling);
 		switch(cmd_->type){
@@ -1795,8 +1798,8 @@ static int si4463_cmd_queue_handler(void *data){
 
 			spi_read_fifo(rx, 64);
 		    //get data from hardware register
-			tmp_len = rx[0];
-			printk(KERN_ALERT "Len: %d\n", tmp_len);
+			packet_len = rx[0];
+			printk(KERN_ALERT "Len: %d\n", packet_len);
 			clr_packet_rx_pend();
 			rx_start();
 			netstack_rx(global_net_devs,rx[0],rx+1);
@@ -1808,15 +1811,15 @@ static int si4463_cmd_queue_handler(void *data){
 				printk(KERN_ALERT "tx isn't approved!\n");
 				break;
 			}
-			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
+//			printk(KERN_ALERT "-----------------------SEND_CMD, spi:%x, spi_save:%x\n", spidev_global.spi, spi_save);
 			/*
 			 * can use rssi int: first close other int, then open rssi int.
 			 */
 						get_modem_status(tmp);
-						printk(KERN_ALERT "When Sending, rssi value: %x\n", tmp[3]);
+//						printk(KERN_ALERT "When Sending, rssi value: %x\n", tmp[3]);
 			for(i = 0; i<10; i++){
 //				get_modem_status(tmp);
-//				//rssi = tmp[3];// & 0x08;
+//				rssi = tmp[3];// & 0x08;
 //				printk(KERN_ALERT "rssi: %x\n", tmp[3]);
 
 				rssi = get_CCA();
@@ -1850,28 +1853,92 @@ static int si4463_cmd_queue_handler(void *data){
 //			printk(KERN_ALERT "NIRQ before: %d\n", gpio_get_value(NIRQ));
 
 //			tx_change_variable_len(cmd_->len);
+			/*
 			skb = (struct sk_buff*)cmd_->data;
 			tmp_len = skb->len;
 			data_ptr = skb->data;
-			if(tmp_len > 40) {
-				data_ptr[0] = 0x18;
-				data_ptr[1] = 0x02;
-				data_ptr[2] = 0x03;
-				data_ptr[3] = 0x04;
-				data_ptr[4] = 0x05;
-				data_ptr[5] = 0x06;
+			*/
+			packet_len = cmd_->len;
+			data_head = (u8*)cmd_->data;
+			if(packet_len > 40) {
+				data_head[0] = 0x18;
+				data_head[1] = 0x02;
+				data_head[2] = 0x03;
+				data_head[3] = 0x04;
+				data_head[4] = 0x05;
+				data_head[5] = 0x06;
 			}
-			spi_write_fifo(&tmp_len, 1);
-			spi_write_fifo(data_ptr, tmp_len);
-			if((tmp_len + 1) < 64)
-				spi_write_fifo(padding, 64-tmp_len-1);
-			tx_start();
-			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
-			//semaphore
-//			down(&sem_tx_complete);
-			ret = down_timeout(&sem_tx_complete, 2*HZ);
+			printk(KERN_ALERT "Len: %d\n", packet_len);
+			fifo_reset();
+			tx_set_packet_len(packet_len+1);
+
+			tmp[0] = packet_len;// >> 8) & 0xFF;
+//			tmp[1] = (packet_len >> 0) & 0xFF;
+			spi_write_fifo(&tmp, 1);
+			if(packet_len <= MAX_FIFO_SIZE)
+			{
+				//Fill all the data to the FIFO.
+				spi_write_fifo(data_head, packet_len);
+				data_ptr = packet_len;
+				tx_start();
+				ret = down_timeout(&sem_tx_complete, 2*HZ);
+			} else {
+				//Fill data to the FIFO.
+				spi_write_fifo(data_head, MAX_FIFO_SIZE);
+				data_ptr = MAX_FIFO_SIZE;
+				tx_start();
+//				down(&sem_tx_wait_fifo);
+				while(!is_tx_fifo_almost_empty()){	}
+//				clr_txfifo_almost_empty_pend();
+			}
+
+			while(data_ptr < packet_len)
+			{
+				if((packet_len - data_ptr) <= TX_THRESHOLD)
+				{
+					//Fill all the remaining data to the TX FIFO
+//					get_fifo_info(tmp);
+//					tmp[3] = packet_len - data_ptr;
+//								ppp(tmp, 4);
+					spi_write_fifo(data_head + data_ptr, packet_len - data_ptr);
+					data_ptr = packet_len;
+					ret = down_timeout(&sem_tx_complete, 2*HZ);
+				}
+				else
+				{
+					//Fill data to the FIFO.
+//					get_fifo_info(tmp);
+//										tmp[3] = TX_THRESHOLD;
+//													ppp(tmp, 4);
+					spi_write_fifo(data_head + data_ptr, TX_THRESHOLD);
+					data_ptr += TX_THRESHOLD;
+//					down(&sem_tx_wait_fifo);
+//					clr_txfifo_almost_empty_pend();
+					while(!is_tx_fifo_almost_empty()){	}
+				}
+			}
+
+
+
+//			spi_write_fifo(&tmp_len, 1);
+//				spi_write_fifo(cmd_->data, cmd_->len);//tmp_len);
+//			if((tmp_len + 1) < 64)
+//				spi_write_fifo(padding, 64-tmp_len-1);
+//			tx_start();
+////			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
+//			//semaphore
+////			down(&sem_tx_complete);
+//			ret = down_timeout(&sem_tx_complete, 2*HZ);
 			/* FREE THE SKB */
-			dev_kfree_skb(skb);
+//			dev_kfree_skb(skb);
+
+
+			get_interrupt_status(tmp);
+			ppp(tmp, 9);
+			get_fifo_info(tmp);
+			ppp(tmp, 3);
+
+out_normal:
 			if(ret == 0)
 				clr_packet_sent_pend();
 			else {
@@ -1880,7 +1947,6 @@ static int si4463_cmd_queue_handler(void *data){
 				reset();
 				break;
 			}
-
 			rx_start();
 
 			break;
@@ -2280,6 +2346,14 @@ int si4463_release(struct net_device *dev)
 
 int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 {
+	if (rbuf_full(&cmd_ringbuffer))
+	{
+		netif_stop_queue(global_net_devs);
+//		printk(KERN_ALERT "Netif Queue is closing\n");
+//		rbuf_print_status(&cmd_ringbuffer);
+//		add_timer(&netq_restart_timer);
+		return -1;
+	}
 //	printk(KERN_ALERT "si4463_tx\n");
     struct module_priv *priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
 
@@ -2303,16 +2377,17 @@ int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 
 	struct cmd cmd_;
 	cmd_.type = SEND_CMD;
-	cmd_.data = (void*)skb;
+	cmd_.len = skb->len;
+	cmd_.data = (void*)skb->data;
 
 	rbuf_enqueue(&cmd_ringbuffer, &cmd_);//must before the kfree
 
     /* remember the skb and free it in si4463_hw_tx */
-//    priv->skb = skb;
+    priv->skb = skb;
 
     /* pseudo transmit the packet,hehe */
 //    rf212_hw_tx(data, (u16)len, dev);
-
+	dev_kfree_skb(priv->skb);
     return 0;
 }
 
@@ -2486,7 +2561,8 @@ static int __init spidev_init(void)
 	/* init sem_irq , locked */
 	sema_init(&sem_irq, 0);
 	sema_init(&sem_tx_complete, 0);
-
+	sema_init(&sem_tx_wait_fifo, 0);
+	sema_init(&sem_rx_wait_fifo, 0);
 	/**
 	 * Func points
 	 */

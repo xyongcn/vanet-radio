@@ -10,5 +10,5 @@ EXTRA_CFLAGS +=
 default:
 	$(MAKE)	-C $(KDIR) SUBDIRS=$(PWD) modules 
 clean:
-	rm *.o *.ko rf212/*.o si4463/*.o
+	rm *.o *.ko rf212/*.o rf212/*.cmd si4463/*.o si4463/*.cmd
 	rm *.mod.c

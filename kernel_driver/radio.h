@@ -18,8 +18,10 @@
 #define IOCTL_SET_BUSY _IOWR(MAJOR_NUM_TX,1,int)
 #include <linux/netdevice.h>
 
-#define SPI_SPEED 6000000//
+#define SPI_SPEED 8000000//
 #define BITS_PER_WORD 8
+
+//#define DEBUG
 
 struct spidev_data {
 	dev_t			devt;

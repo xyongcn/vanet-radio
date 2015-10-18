@@ -8,8 +8,8 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 
-#define RBUF_MAX 100
-#define MAXSIZE_PER_CMD 64
+#define RBUF_MAX 1000
+#define MAXSIZE_PER_CMD 300
 
 
 /* === TEMPPPPP~ ==============================================================*/
@@ -42,7 +42,7 @@ struct cmd {
 	int type;
 	void * data;
 //	struct sk_buff *skb;
-//	u16 len;
+	int len;
 //	struct cmd *next;
 };
 

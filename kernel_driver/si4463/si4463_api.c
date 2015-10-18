@@ -36,7 +36,15 @@ int get_CCA_latch(void){
 }
 
 bool get_CCA(void){
-	return gpio_get_value(GPIO0)>0 ? 1 : 0;
+	u8 tmp[10];
+	get_modem_status(tmp);
+
+	return tmp[3] > 0x55 ? 1 : 0;
+//	return gpio_get_value(GPIO0)>0 ? 1 : 0;
+}
+
+bool is_tx_fifo_almost_empty(void){
+	return gpio_get_value(GPIO0) > 0 ? 1 : 0;
 }
 
 static inline void getCTS(void) {
@@ -52,7 +60,7 @@ static inline void getCTS(void) {
 			printk(KERN_ALERT "getCTS: %x\n", reply);
 			cs_high();
 		//	spidev_sync_transfer(&spidev_global, in_buff, out_buff, byteCountTx);
-			ndelay(100);
+//			ndelay(10);
 			cs_low();
 		}
 		if (j-- < 0)
@@ -102,12 +110,13 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	mutex_lock(&mutex_spi);
 
 	cs_low();
-	for (i=0; i<byteCountTx; i++){
-		spidev_global.buffer = &(in_buff[i]);
-		//printk(KERN_ALERT "%x ", *(spidev_global.buffer));
-		spidev_sync_write(&spidev_global, 1);
-	}
-
+//	for (i=0; i<byteCountTx; i++){
+//		spidev_global.buffer = &(in_buff[i]);
+//		//printk(KERN_ALERT "%x ", *(spidev_global.buffer));
+//		spidev_sync_write(&spidev_global, 1);
+//	}
+	spidev_global.buffer = in_buff;
+	spidev_sync_write(&spidev_global, byteCountTx);
 	cs_high();
 
 	if(byteCountRx == 0) {
@@ -116,18 +125,20 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	}
 
 //	ndelay(100);
-	ndelay(10);
+//	ndelay(10);
 	cs_low();
 
 //	if(!getCTS_gpio())
-		getCTS();
+	getCTS();
 
-	for (k=0; k<byteCountRx; k++){
-		spidev_global.buffer = &(out_buff[k]);
-		spidev_sync_read(&spidev_global, 1);
-
-//		printk(KERN_ALERT "%x ", *(spidev_global.buffer));
-	}
+//	for (k=0; k<byteCountRx; k++){
+//		spidev_global.buffer = &(out_buff[k]);
+//		spidev_sync_read(&spidev_global, 1);
+//
+////		printk(KERN_ALERT "%x ", *(spidev_global.buffer));
+//	}
+	spidev_global.buffer = out_buff;
+	spidev_sync_read(&spidev_global, byteCountRx);
 	cs_high();
 	mutex_unlock(&mutex_spi);
 	return out_buff;
@@ -427,18 +438,7 @@ void setRFParameters(void)  //设置RF参数
 
 
 void Function_set_tran_property(){
-	u8 abApi_Write[10];
-	// Enable the proper interrupts
-//	abApi_Write[0] = CMD_SET_PROPERTY;        // Use property command
-//	abApi_Write[1] = PROP_INT_CTL_GROUP;      // Select property group
-//	abApi_Write[2] = 4;               // Number of properties to be written
-//	abApi_Write[3] = PROP_INT_CTL_ENABLE;     // Specify property
-//	abApi_Write[4] = 0x01;              // INT_CTL: PH interrupt enable
-//	abApi_Write[5] = 0x3B;              // INT_CTL_PH: PH PACKET_SENT, PACKET_RX, CRC2_ERR, TX_FIFO_ALMOST_EMPTY, RX_FIFO_ALMOST_FULL enabled
-//	abApi_Write[6] = 0x00;              // INT_CTL_MODEM: -
-//	abApi_Write[7] = 0x00;              // INT_CTL_CHIP_EN: -
-//	bApi_SendCommand(8,abApi_Write);        // Send API command to the radio IC
-//	vApi_WaitforCTS();                // Wait for CTS
+	u8 abApi_Write[10];              // Wait for CTS
 
 	// General packet config (set bit order)
 	abApi_Write[0] = CMD_SET_PROPERTY;        // Use property command
@@ -454,7 +454,7 @@ void Function_set_tran_property(){
 	abApi_Write[1] = PROP_PKT_GROUP;        // Select property group
 	abApi_Write[2] = 3;               // Number of properties to be written
 	abApi_Write[3] = PROP_PKT_LEN;          // Specify property, PKT_LEN.ENDIAN=1, MSB byte first; PKT_LEN.SIZE=1,two bytes in length; PKT_LEN.IN_FIFO=0, length is not in RX FIFO.
-	abApi_Write[4] = 0x22;              // PKT_LEN: length is put in the Rx FIFO, FIELD 2 is used for the payload (with variable length)
+	abApi_Write[4] = 0x02;              // PKT_LEN: length is put in the Rx FIFO, FIELD 2 is used for the payload (with variable length)
 	abApi_Write[5] = 0x01;              // PKT_LEN_FIELD_SOURCE: FIELD 1 is used for the length information
 	abApi_Write[6] = 0x00;              // PKT_LEN_ADJUST: no adjustment (FIELD 1 determines the actual payload length)
 	spi_write_cmd(7,abApi_Write);        // Send command to the radio IC
@@ -468,7 +468,7 @@ void Function_set_tran_property(){
 	abApi_Write[4] = 0x00;              // PKT_FIELD_1_LENGTH_12_8: defined later (under bSendPacket() )
 	abApi_Write[5] = 0x00;              // PKT_FIELD_1_LENGTH_7_0: defined later (under bSendPacket() )
 	abApi_Write[6] = 0x00;              // PKT_FIELD_1_CONFIG : No 4(G)FSK/Whitening/Manchester coding for this field
-	abApi_Write[7] = 0xA2;              // PKT_FIELD_1_CRC_CONFIG: Start CRC calc. from this field, send CRC at the end of the field
+	abApi_Write[7] = 0xA0;              // PKT_FIELD_1_CRC_CONFIG: Start CRC calc. from this field, send CRC at the end of the field
 	spi_write_cmd(8,abApi_Write);        // Send command to the radio IC
 //	vApi_WaitforCTS();                // Wait for CTS
 
@@ -479,9 +479,9 @@ void Function_set_tran_property(){
 	abApi_Write[2] = 4;               // Number of properties to be written
 	abApi_Write[3] = PROP_PKT_RX_FIELD_1_LENGTH_12_8; // Specify first property
 	abApi_Write[4] = 0x00;              // PKT_RX_FIELD_1_LENGTH_12_8: 1 byte (containing variable packet length info)
-	abApi_Write[5] = 0x02;              // PKT_RX_FIELD_1_LENGTH_7_0: 2 byte (containing variable packet length info)
+	abApi_Write[5] = 0x01;              // PKT_RX_FIELD_1_LENGTH_7_0: 2 byte (containing variable packet length info)
 	abApi_Write[6] = 0x00;              // PKT_RX_FIELD_1_CONFIG: No 4(G)FSK/Whitening/Manchester coding for this field
-	abApi_Write[7] = 0x82;              // PKT_RX_FIELD_1_CRC_CONFIG: Start CRC calc. from this field, enable CRC calc.
+	abApi_Write[7] = 0x80;              // PKT_RX_FIELD_1_CRC_CONFIG: Start CRC calc. from this field, enable CRC calc.
 	spi_write_cmd(8,abApi_Write);        // Send command to the radio IC
 	// FIELD2 is variable length, contains the actual payload
 //	vApi_WaitforCTS();                // Wait for CTS
@@ -490,10 +490,10 @@ void Function_set_tran_property(){
 	abApi_Write[1] = PROP_PKT_GROUP;        // Select property group
 	abApi_Write[2] = 4;               // Number of properties to be written
 	abApi_Write[3] = PROP_PKT_RX_FIELD_2_LENGTH_12_8; // Specify first property
-	abApi_Write[4] = (MAX_PACKET_LENGTH >> 8) & 0xFF;     // PKT_RX_FIELD_2_LENGTH_12_8: max. field length (variable packet length)
-	abApi_Write[5] = (MAX_PACKET_LENGTH >> 0) & 0xFF;     // PKT_RX_FIELD_2_LENGTH_7_0: max. field length (variable packet length)
+	abApi_Write[4] = 0x00;// (MAX_PACKET_LENGTH >> 8) & 0xFF;     // PKT_RX_FIELD_2_LENGTH_12_8: max. field length (variable packet length)
+	abApi_Write[5] = MAX_PACKET_LENGTH;//(MAX_PACKET_LENGTH >> 0) & 0xFF;     // PKT_RX_FIELD_2_LENGTH_7_0: max. field length (variable packet length)
 	abApi_Write[6] = 0x00;              // PKT_RX_FIELD_2_CONFIG: No 4(G)FSK/Whitening/Manchester coding for this field
-	abApi_Write[7] = 0x0A;              // PKT_RX_FIELD_2_CRC_CONFIG: check CRC at the end, enable CRC calc.
+	abApi_Write[7] = 0x00;              // PKT_RX_FIELD_2_CRC_CONFIG: check CRC at the end, enable CRC calc.
 	spi_write_cmd(8,abApi_Write);        // Send command to the radio IC
 //	vApi_WaitforCTS();                // Wait for CTS
 
@@ -538,9 +538,23 @@ void tx_fifo_reset(void)
 	spi_write_cmd(2, p);
 }
 
+void clr_txfifo_almost_empty_pend(void){
+	u8 p[2];
+	p[0] = GET_PH_STATUS;
+//	p[1] = 0xdf;
+	p[1] = 0xf9;
+	spi_write_cmd(2, p);
+}
+void clr_rxfifo_almost_full_pend(void){
+	u8 p[2];
+	p[0] = GET_PH_STATUS;
+//	p[1] = 0xdf;
+	p[1] = 0xfa;
+	spi_write_cmd(2, p);
+}
+
 void clr_packet_sent_pend(void) {
 	u8 p[2];
-	u8 p2[3];
 	p[0] = GET_PH_STATUS;
 //	p[1] = 0xdf;
 	p[1] = 0x10;//leave the PACKET_RX_PEND_CLR alone
@@ -579,10 +593,9 @@ void clr_interrupt(void)		// 清中断标志
 	//spi_read(9,GET_INT_STATUS);
 }
 
-void get_interrupt_status(void)		// 中断
+void get_interrupt_status(u8* p2)		// 中断
 {
 	unsigned char p[4];
-	unsigned char p2[10];
 
 	p[0] = GET_INT_STATUS;
 	p[1] = 0xfb;
@@ -679,7 +692,8 @@ void tx_start(void)					// 开始发射
 	p[2] = 0x30;//ready
 
 	p[3] = 0x00;
-	p[4] = 0x40;
+//	p[4] = 0x40;
+	p[4] = 0x00;
 	spi_write_cmd(5, p);
 }
 
@@ -691,18 +705,22 @@ void tx_start_1B(void)					// 开始发射
 	spi_write_cmd(1, p);
 }
 
-void tx_change_variable_len(u16 len)
+void tx_set_packet_len(u16 packetlen)
 {
-	unsigned char p[6];
+	printk(KERN_ALERT "PACKET Len: %d\n", packetlen);
+	u8 abApi_Write[6];
 	// Set TX packet length
-	p[0] = 0x11;        // Use property command
-	p[1] = 0x12;          // Select property group
-	p[2] =1;                       // Number of properties to be written
-	p[3] = PROP_PKT_FIELD_1_LENGTH_7_0 ;            // Specify first property
-	p[4] = len & 0xFF;  // Field length (variable packet length info)
-//	p[5] = (len >> 0) & 0xFF;
-//	printk(KERN_ALERT "tx_change_variable_len:p[4]:%x, p[5]:%x\n", p[4],p[5]);
-	spi_write_cmd(5, p);
+	abApi_Write[0] = CMD_SET_PROPERTY;        // Use property command
+	abApi_Write[1] = PROP_PKT_GROUP;          // Select property group
+//	abApi_Write[2] = 2;                       // Number of properties to be written
+//	abApi_Write[3] = PROP_PKT_FIELD_1_LENGTH_12_8 ;            // Specify first property
+//	abApi_Write[4] = (packetlen >> 8) & 0xFF;  // Field length (variable packet length info)
+//	abApi_Write[5] = (packetlen >> 0) & 0xFF;
+    abApi_Write[2] = 1;                       // Number of properties to be written
+    abApi_Write[3] = PROP_PKT_FIELD_1_LENGTH_7_0;            // Specify first property
+	abApi_Write[4] = packetlen;
+//	spi_write_cmd(6, abApi_Write);
+	spi_write_cmd(5, abApi_Write);
 }
 
 void rx_start(void)					// 开始接收
@@ -727,28 +745,33 @@ void change_state2tx_tune(void){
 	spi_write_cmd(2, p);
 }
 
+u8 test[300];
 void spi_write_fifo(unsigned char * data, int len) {
 	int j;
 
-	mutex_lock(&mutex_spi);
-
+//	test[0] = WRITE_TX_FIFO;
+//	memcpy(test+1, data, )
+//	mutex_lock(&mutex_spi);
+//	printk(KERN_ALERT "spi_write_fifo: write %d\n", len);
 	cs_low();
 	u8 cmd = WRITE_TX_FIFO;
 	spidev_global.buffer = &cmd;
 	spidev_sync_write(&spidev_global, 1);
-	for (j = 0; j < len; j++) {
-		cmd = data[j];
-		spidev_sync_write(&spidev_global, 1);
-	}
+//	for (j = 0; j < len; j++) {
+//		cmd = data[j];
+//		spidev_sync_write(&spidev_global, 1);
+//	}
+	spidev_global.buffer = data;
+	spidev_sync_write(&spidev_global, len);
 	cs_high();
 
-	mutex_unlock(&mutex_spi);
+//	mutex_unlock(&mutex_spi);
 }
 
 void spi_read_fifo(unsigned char * st, int len) {
 	int j;
 
-	mutex_lock(&mutex_spi);
+//	mutex_lock(&mutex_spi);
 
 	cs_low();
 	u8 cmd = READ_RX_FIFO;
@@ -757,12 +780,14 @@ void spi_read_fifo(unsigned char * st, int len) {
 	spidev_sync_write(&spidev_global, 1);
 	cmd = 0xff;
 
-	for (j = 0; j < len; j++) {
-		spidev_sync_transfer(&spidev_global, &cmd, &(st[j]),  1);
-
-	}
+//	for (j = 0; j < len; j++) {
+//		spidev_sync_transfer(&spidev_global, &cmd, &(st[j]),  1);
+//
+//	}
+	spidev_global.buffer = st;
+	spidev_sync_read(&spidev_global,len);
 	cs_high();
-	mutex_unlock(&mutex_spi);
+//	mutex_unlock(&mutex_spi);
 
 	//Serial.println();
 	//  unsigned char p[] = {READ_RX_FIFO};

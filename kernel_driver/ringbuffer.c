@@ -37,8 +37,9 @@ void copy_cmd(struct cmd *dest, struct cmd *src){
 	//comment 20150915: reduce the memcpy
 //	for(i=0; i<src->len; i++)
 //		dest->data[i] = src->data[i];
-	dest->data = src->data;
-//	dest->len = src->len;
+	memcpy(dest->data, src->data, src->len);
+//	dest->data = src->data;
+	dest->len = src->len;
 	dest->type = src->type;
 //	dest->next = src->next;
 }
