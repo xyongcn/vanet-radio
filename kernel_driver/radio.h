@@ -18,7 +18,7 @@
 #define IOCTL_SET_BUSY _IOWR(MAJOR_NUM_TX,1,int)
 #include <linux/netdevice.h>
 
-#define SPI_SPEED 8000000//
+#define SPI_SPEED 7000000//
 #define BITS_PER_WORD 8
 
 //#define DEBUG
@@ -74,6 +74,7 @@ inline ssize_t spidev_sync_read(struct spidev_data *spidev, size_t len);
 inline ssize_t spidev_sync_write(struct spidev_data *spidev,  size_t len);
 //inline ssize_t spidev_sync_write_nosleep(struct spidev_data *spidev,  size_t len);
 inline ssize_t spidev_async_write(struct spidev_data *spidev,  size_t len);
+ssize_t spidev_sync(struct spidev_data *spidev, struct spi_message *message);
 
 void ppp(u8 * arr, int len);
 

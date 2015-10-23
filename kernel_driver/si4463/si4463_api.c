@@ -1,6 +1,7 @@
 #include "si4463_api.h"
 #include "cmd.h"
-#include "../radio.h"
+//#include "../radio.h"
+#include "../802154-si4463.h"
 
 #include <linux/kernel.h> /* printk() */
 #include <linux/slab.h> /* kmalloc() */
@@ -50,21 +51,23 @@ bool is_tx_fifo_almost_empty(void){
 static inline void getCTS(void) {
 	u8 reply = 0x00;
 	u8 request = 0x44;
-	int j = 25;
+	int j = 250;
 	while (reply != 0xFF) {
 		request = 0x44;
 
 		spidev_sync_transfer(&spidev_global, &request, &reply, 1);
 
 		if (reply != 0xFF){
-			printk(KERN_ALERT "getCTS: %x\n", reply);
+//			printk(KERN_ALERT "getCTS: %x\n", reply);
 			cs_high();
 		//	spidev_sync_transfer(&spidev_global, in_buff, out_buff, byteCountTx);
-//			ndelay(10);
+			ndelay(10);
 			cs_low();
 		}
-		if (j-- < 0)
+		if (j-- < 0) {
+			printk(KERN_ALERT "**********************getCTS ERROR!***********************\n", reply);
 			break;
+		}
 	}
 }
 
@@ -107,7 +110,7 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	//printk(KERN_ALERT "Send CMD! \n");
 
 
-	mutex_lock(&mutex_spi);
+//	mutex_lock(&mutex_spi);
 
 	cs_low();
 //	for (i=0; i<byteCountTx; i++){
@@ -120,7 +123,7 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	cs_high();
 
 	if(byteCountRx == 0) {
-		mutex_unlock(&mutex_spi);
+//		mutex_unlock(&mutex_spi);
 		return NULL;
 	}
 
@@ -140,7 +143,7 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	spidev_global.buffer = out_buff;
 	spidev_sync_read(&spidev_global, byteCountRx);
 	cs_high();
-	mutex_unlock(&mutex_spi);
+//	mutex_unlock(&mutex_spi);
 	return out_buff;
 }
 /*
@@ -215,7 +218,7 @@ void reset(void) {
 //
 
 	setRFParameters();
-//	Function_set_tran_property();
+	Function_set_tran_property();
 	fifo_reset();
 
 }
@@ -507,14 +510,20 @@ void Function_set_tran_property(){
 //	vApi_WaitforCTS();                // Wait for CTS
 
 	// Set the TX FIFO alsmot empty threshold and RX FIFO alsmost full threshold
-//	abApi_Write[0] = CMD_SET_PROPERTY;	// Use property command
-//	abApi_Write[1] = PROP_PKT_GROUP;		// Select property group
-//	abApi_Write[2] = 2;				    // Number of properties to be written
-//	abApi_Write[3] = PROP_PKT_TX_THRESHOLD;	      // Specify property
-//	abApi_Write[4] = TX_THRESHOLD;
-//	abApi_Write[5] = RX_THRESHOLD;
-//	spi_write_cmd(6,abApi_Write);		// Send command to the radio IC
+	abApi_Write[0] = CMD_SET_PROPERTY;	// Use property command
+	abApi_Write[1] = PROP_PKT_GROUP;		// Select property group
+	abApi_Write[2] = 2;				    // Number of properties to be written
+	abApi_Write[3] = PROP_PKT_TX_THRESHOLD;	      // Specify property
+	abApi_Write[4] = TX_THRESHOLD;
+	abApi_Write[5] = RX_THRESHOLD;
+	spi_write_cmd(6,abApi_Write);		// Send command to the radio IC
 //	vApi_WaitforCTS();					// Wait for CTS
+	abApi_Write[0] = CMD_SET_PROPERTY;	// Use property command
+	abApi_Write[1] = 0x00;		// Select property group
+	abApi_Write[2] = 0x01;				    // Number of properties to be written
+	abApi_Write[3] = 0x03;	      // Specify property
+	abApi_Write[4] = 0x70;
+	spi_write_cmd(5,abApi_Write);		// Send command to the radio IC
 }
 
 
@@ -707,7 +716,7 @@ void tx_start_1B(void)					// 开始发射
 
 void tx_set_packet_len(u16 packetlen)
 {
-	printk(KERN_ALERT "PACKET Len: %d\n", packetlen);
+//	printk(KERN_ALERT "PACKET Len: %d\n", packetlen);
 	u8 abApi_Write[6];
 	// Set TX packet length
 	abApi_Write[0] = CMD_SET_PROPERTY;        // Use property command
@@ -745,27 +754,67 @@ void change_state2tx_tune(void){
 	spi_write_cmd(2, p);
 }
 
-u8 test[300];
+//u8 test[300];
+//void spi_write_fifo(unsigned char * data, int len) {
+//	int j;
+///*
+////	test[0] = WRITE_TX_FIFO;
+////	memcpy(test+1, data, len);
+////	mutex_lock(&mutex_spi);
+////	printk(KERN_ALERT "spi_write_fifo: write %d\n", len);
+//	cs_low();
+//	u8 cmd = WRITE_TX_FIFO;
+//	spidev_global.buffer = &cmd;
+//	spidev_sync_write(&spidev_global, 1);
+////	for (j = 0; j < len; j++) {
+////		cmd = data[j];
+////		spidev_sync_write(&spidev_global, 1);
+////	}
+//	spidev_global.buffer = data;
+//	spidev_sync_write(&spidev_global, len);
+//	cs_high();
+//
+////	mutex_unlock(&mutex_spi);
+// */
+//	ssize_t ret;
+//	u8 cmd = WRITE_TX_FIFO;
+//	struct spi_transfer	t_cmd = {
+//			.tx_buf		= &cmd,
+//			.len		= 1,
+//		};
+//	struct spi_transfer	t_data = {
+//			.tx_buf		= data,
+//			.len		= len,
+//		};
+//	struct spi_message	m;
+//
+//	spi_message_init(&m);
+//	spi_message_add_tail(&t_cmd, &m);
+//	spi_message_add_tail(&t_data, &m);
+//	ret = spidev_sync(spidev_global, &m);
+//}
 void spi_write_fifo(unsigned char * data, int len) {
 	int j;
+	ssize_t ret;
+	u8 cmd = 0x66;
+	struct spi_transfer	t_cmd = {
+			.tx_buf		= &cmd,
+			.len		= 1,
+			.cs_change 	= 0,
+		};
+	struct spi_transfer	t_data = {
+			.tx_buf		= data,
+			.len		= len,
+			.cs_change 	= 0,
+		};
+	struct spi_message	m;
 
-//	test[0] = WRITE_TX_FIFO;
-//	memcpy(test+1, data, )
-//	mutex_lock(&mutex_spi);
-//	printk(KERN_ALERT "spi_write_fifo: write %d\n", len);
+	spi_message_init(&m);
+	spi_message_add_tail(&t_cmd, &m);
+	spi_message_add_tail(&t_data, &m);
 	cs_low();
-	u8 cmd = WRITE_TX_FIFO;
-	spidev_global.buffer = &cmd;
-	spidev_sync_write(&spidev_global, 1);
-//	for (j = 0; j < len; j++) {
-//		cmd = data[j];
-//		spidev_sync_write(&spidev_global, 1);
-//	}
-	spidev_global.buffer = data;
-	spidev_sync_write(&spidev_global, len);
+	ret = spidev_sync(&spidev_global, &m);
 	cs_high();
-
-//	mutex_unlock(&mutex_spi);
 }
 
 void spi_read_fifo(unsigned char * st, int len) {
@@ -822,42 +871,42 @@ void get_modem_status(u8 *rx){
 }
 
 
-void read_frr_a(u8 *value) {
-	u8 cmd;
-	u8 rx[3];
+u8 read_frr_a(void) {
+	u8 cmd[2];
+	u8 rx[2];
 	int j;
-	cmd = FRR_A_READ;
+	cmd[0] = FRR_A_READ;
+	cmd[1] = 0x00;
 
-	mutex_lock(&mutex_spi);
+//	mutex_lock(&mutex_spi);
 	cs_low();
 	spidev_global.buffer = &cmd;
-	spidev_sync_write(&spidev_global, 1);
-	cmd = 0x00;
-	spidev_sync_transfer(&spidev_global, &cmd, value,  1);
+//	spidev_sync_write(&spidev_global, 1);
+//	cmd = 0x00;
+	spidev_sync_transfer(&spidev_global, &cmd, rx,  2);
 	cs_high();
-	mutex_unlock(&mutex_spi);
-/*
-	for(j=5; j>=0 && (*value == 0 || *value == 0xff); j--)
+//	mutex_unlock(&mutex_spi);
+
+	for(j=50; j>=0 && rx[1] != 0x22 && rx[1] != 0x20
+				&& rx[1] != 0x10 && rx[1] != 0x11
+				/*(*value == 0 || *value == 0xff)*/; j--)
 	{
 //		mutex_lock(&mutex_spi);
 //		get_ph_status(rx);
 //		mutex_unlock(&mutex_spi);
 //		*value = rx[1];
-		printk(KERN_ALERT "read frra retry!\n");
-		cmd = FRR_A_READ;
-
-		mutex_lock(&mutex_spi);
+//		printk(KERN_ALERT "read frra retry!\n");
 		cs_low();
-		spidev_global.buffer = &cmd;
-		spidev_sync_write(&spidev_global, 1);
-		cmd = 0x00;
-		spidev_sync_transfer(&spidev_global, &cmd, value,  1);
+//		spidev_global.buffer = &cmd;
+	//	spidev_sync_write(&spidev_global, 1);
+	//	cmd = 0x00;
+		spidev_sync_transfer(&spidev_global, &cmd, rx,  2);
 		cs_high();
-		mutex_unlock(&mutex_spi);
+//		mutex_unlock(&mutex_spi);
 
 	}
-*/
-	return;
+
+	return rx[1];
 }
 
 void read_frr_b(u8 *value) {
@@ -866,14 +915,14 @@ void read_frr_b(u8 *value) {
 	int j;
 	cmd = FRR_B_READ;
 
-	mutex_lock(&mutex_spi);
+//	mutex_lock(&mutex_spi);
 	cs_low();
 	spidev_global.buffer = &cmd;
 	spidev_sync_write(&spidev_global, 1);
 	cmd = 0x00;
 	spidev_sync_transfer(&spidev_global, &cmd, value,  1);
 	cs_high();
-	mutex_unlock(&mutex_spi);
+//	mutex_unlock(&mutex_spi);
 
 //	while(*value == 0 || *value == 0xff)
 //	{

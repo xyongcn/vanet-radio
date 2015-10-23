@@ -5,8 +5,8 @@
 #include <linux/types.h>  /* size_t */
 
 #define MAX_PACKET_LENGTH 250
-#define TX_THRESHOLD 54
-#define RX_THRESHOLD 54
+#define TX_THRESHOLD 0x23
+#define RX_THRESHOLD 0x30
 #define MAX_FIFO_SIZE 128
 
 /*
@@ -21,7 +21,7 @@ void spi_read_fifo(unsigned char * st, int len);
 void fifo_reset(void);
 void tx_fifo_reset(void);
 //void read_frr_x(char no);    //no=a,b,c,d represent frr_a, frr_b, frr_c, frr_d
-void read_frr_a(u8 *value);
+u8 read_frr_a(void);
 void read_frr_b(u8 *value);
 
 //Configure

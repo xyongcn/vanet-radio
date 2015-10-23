@@ -8,8 +8,8 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 
-#define RBUF_MAX 1000
-#define MAXSIZE_PER_CMD 300
+#define RBUF_MAX 100
+#define MAXSIZE_PER_CMD 3000
 
 
 /* === TEMPPPPP~ ==============================================================*/
@@ -40,7 +40,7 @@ struct cmd {
 #define SEND_CMD		2
 #define OTHER_CMD		55
 	int type;
-	void * data;
+	u8 * data;
 //	struct sk_buff *skb;
 	int len;
 //	struct cmd *next;
@@ -52,13 +52,13 @@ typedef struct _rbuf
 	int next_in; /* 缓冲区中下一个保存数据的位置 */
 	int next_out; /* 从缓冲区中取出下一个数据的位置 */
 	int capacity; /* 这个缓冲区的可保存的数据的总个数 */
-	//mutex_t        mutex;            /* Lock the structure */
+//	mutex_t        mutex;            /* Lock the structure */
 	spinlock_t lock;
 //    cond_t        	not_full;        /* Full -> not full condition */
 //   cond_t        	not_empty;        /* Empty -> not empty condition */
 	wait_queue_head_t wait_isfull;
 	wait_queue_head_t wait_isempty;
-	struct cmd data[RBUF_MAX];/* 缓冲区中保存的数据指针 */
+	struct cmd *data;/* 缓冲区中保存的数据指针 */
 } rbuf_t;
 
 /* 初始化环形缓冲区 */
@@ -77,6 +77,8 @@ struct cmd * rbuf_dequeue(rbuf_t *rb);
 
 /* 判断缓冲区是否为满 */
 bool rbuf_full(rbuf_t *rb);
+
+bool rbuf_almost_full(rbuf_t *c);
 
 bool rbuf_almost_empty(rbuf_t *c);
 

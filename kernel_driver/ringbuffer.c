@@ -1,6 +1,7 @@
 #include <linux/slab.h>
 #include "ringbuffer.h"
 
+DEFINE_MUTEX(mutex_rbuf);
 /* 初始化环形缓冲区 */
 int rbuf_init(rbuf_t *rb)
 {
@@ -14,9 +15,10 @@ int rbuf_init(rbuf_t *rb)
 	rb->next_out = 0;
 	rb->capacity = RBUF_MAX;
 
+	rb->data = kmalloc(RBUF_MAX*sizeof(struct cmd), GFP_KERNEL);
 	for (i = 0; i < RBUF_MAX; i++)
 	{
-		rb->data[i].data = kmalloc(MAXSIZE_PER_CMD, GFP_KERNEL);
+		rb->data[i].data = kmalloc(MAXSIZE_PER_CMD*sizeof(u8), GFP_KERNEL);
 	}
 
 	return 0;
@@ -34,7 +36,6 @@ void rbuf_destroy(rbuf_t *c)
 
 void copy_cmd(struct cmd *dest, struct cmd *src){
 //	int i;
-	//comment 20150915: reduce the memcpy
 //	for(i=0; i<src->len; i++)
 //		dest->data[i] = src->data[i];
 	memcpy(dest->data, src->data, src->len);
@@ -63,7 +64,9 @@ int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_)
 		wait_event_interruptible(rb->wait_isfull, !rbuf_full(rb));
 	}
 
+//	printk(KERN_ALERT "len: %d, datap: %x, next_in:%d, size: %d\n", cmd_->len, cmd_->data, rb->next_in, rb->size);
 	spin_lock(&rb->lock);
+//	mutex_lock(&mutex_rbuf);
 	copy_cmd(&(rb->data[rb->next_in++]), cmd_);
 	rb->size++;
 	rb->next_in %= rb->capacity;
@@ -71,6 +74,7 @@ int rbuf_enqueue(rbuf_t *rb, struct cmd *cmd_)
 	//ppp(rb->data[rb->next_in-1].data, rb->data[rb->next_in-1].data)
 
 	spin_unlock(&rb->lock);
+//	mutex_unlock(&mutex_rbuf);
 	wake_up_interruptible(&rb->wait_isempty);
 	return 0;
 }
@@ -94,6 +98,7 @@ int rbuf_insert_readcmd(rbuf_t *rb)
 	if (rbuf_empty(rb))
 	{
 		spin_lock(&rb->lock);
+//		mutex_lock(&mutex_rbuf);
 		rb->data[rb->next_in].type = READFIFO_CMD;
 //		rb->data[rb->next_in].len = 4;
 		rb->next_in++;
@@ -103,11 +108,13 @@ int rbuf_insert_readcmd(rbuf_t *rb)
 		//ppp(rb->data[rb->next_in-1].data, rb->data[rb->next_in-1].data)
 
 		spin_unlock(&rb->lock);
+//		mutex_unlock(&mutex_rbuf);
 		wake_up_interruptible(&rb->wait_isempty);
 		return 0;
 	}
 
 	spin_lock(&rb->lock);
+//	mutex_lock(&mutex_rbuf);
 	if(rb->next_out == 0)
 		rb->next_out == rb->capacity - 1;
 	else
@@ -120,6 +127,7 @@ int rbuf_insert_readcmd(rbuf_t *rb)
 
 	rb->size++;
 	spin_unlock(&rb->lock);
+//	mutex_unlock(&mutex_rbuf);
 
 	wake_up_interruptible(&rb->wait_isempty);
 	return 0;
@@ -138,12 +146,15 @@ struct cmd* rbuf_dequeue(rbuf_t *rb)
 		wait_event_interruptible(rb->wait_isempty, !rbuf_empty(rb));
 	}
 
+//	printk(KERN_ALERT "next_in:%d, size: %d\n", rb->next_in, rb->size);
 	spin_lock(&rb->lock);
+//	mutex_lock(&mutex_rbuf);
 	cmd_ = &rb->data[rb->next_out++];
 	rb->size--;
 	rb->next_out %= rb->capacity;
 
 	spin_unlock(&rb->lock);
+//	mutex_unlock(&mutex_rbuf);
 	wake_up_interruptible(&rb->wait_isfull);
 	//return ret;
 	return cmd_;
@@ -153,6 +164,11 @@ struct cmd* rbuf_dequeue(rbuf_t *rb)
 bool rbuf_full(rbuf_t *c)
 {
 	return (c->size == c->capacity);
+}
+
+bool rbuf_almost_full(rbuf_t *c)
+{
+	return (c->size >= (c->capacity - 5));
 }
 
 /*  */
@@ -187,18 +203,18 @@ bool rbuf_peep_first_isREADCMD(rbuf_t *rb)
 //		printk(KERN_ALERT "peep: ringbuffer is EMPTY!\n");
 		return 0;
 	}
-	spin_lock(&rb->lock);
+//	spin_lock(&rb->lock);
 	cmd_ = &rb->data[rb->next_out];
 
-	spin_unlock(&rb->lock);
+//	spin_unlock(&rb->lock);
 	return (cmd_->type == READFIFO_CMD) ? 1 : 0;;
 }
 
 void rbuf_print_status(rbuf_t *rb) {
-	spin_lock(&rb->lock);
+//	spin_lock(&rb->lock);
 	printk(KERN_ALERT "size: %d\n", rb->size);
 //	printk(KERN_ALERT "next_in: %d\n", rb->next_in);
 //	printk(KERN_ALERT "next_out %d\n", rb->next_out);
-	spin_unlock(&rb->lock);
+//	spin_unlock(&rb->lock);
 //	printk(KERN_ALERT "", );
 }

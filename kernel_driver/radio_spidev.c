@@ -107,7 +107,7 @@ static int module_install_global = 0;
 module_param(module_install_global, int, S_IRUGO);
 MODULE_PARM_DESC(module_install_global, "module installed");
 
-static int mtu_global = 2000;
+static int mtu_global = 200;
 module_param(mtu_global, int, S_IRUGO);
 MODULE_PARM_DESC(mtu_global, "MAC layer MTU");
 
@@ -168,6 +168,16 @@ DEFINE_MUTEX(mutex_spi);
 
 
 /* GLOBAL */
+struct {
+	u8* data;
+	int len;
+	int position;
+} data_sending;
+
+u8 pRecv[10];
+struct work_struct irqwork;
+struct completion tx_complete;
+
 static char  netbuffer[100];
 struct net_device *global_net_devs;
 //struct net_device *tmp_devs;
@@ -180,15 +190,15 @@ struct int_with_lock{
 
 inline static int read_int_with_lock(struct int_with_lock *t){
 	int tmp;
-	spin_lock(&t->lock);
+//	spin_lock(&t->lock);
 	tmp = t->data;
-	spin_unlock(&t->lock);
+//	spin_unlock(&t->lock);
 	return tmp;
 }
 inline static void write_int_with_lock(struct int_with_lock *t, int data){
-	spin_lock(&t->lock);
+//	spin_lock(&t->lock);
 	t->data = data;
-	spin_unlock(&t->lock);
+//	spin_unlock(&t->lock);
 }
 
 struct int_with_lock isHandlingIrq;
@@ -346,7 +356,7 @@ static void spidev_complete(void *arg)
 	complete(arg);
 }
 
-static ssize_t
+ssize_t
 spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 {
 //	gpio_set_value(SSpin, 0);
@@ -1097,6 +1107,7 @@ static int spidev_probe(struct spi_device *spi)
 	netq_restart_timer.function = netq_restart;
 	netq_restart_timer.data = 0;
 
+	init_completion(&tx_complete);
 
 	return status;
 }
@@ -1181,7 +1192,8 @@ void netstack_rx(struct net_device *dev, int len, unsigned char *buf)
 }
 inline static void irq_tx_complete() {
 //
-	up(&sem_tx_complete);
+//	up(&sem_tx_complete);
+	complete(&tx_complete);
 	isSending = 0;
 	if(module_install_global == RF212) {
 		tal_state = TAL_IDLE;
@@ -1193,7 +1205,47 @@ inline static void irq_tx_complete() {
 }
 
 inline static void irq_fifo_almost_empty() {
-	up(&sem_tx_wait_fifo);
+/*
+//	up(&sem_tx_wait_fifo);
+	int len2write;
+	if(data_sending.position == data_sending.len)
+		return;
+//	printk(KERN_ALERT "irq_fifo_almost_empty: LEN: %d, POSITION: %d\n", data_sending.len, data_sending.position);
+	get_fifo_info(pRecv);
+//	if (pRecv[2]<TX_THRESHOLD) {
+//		printk(KERN_ALERT "avail: %x\n", pRecv[2]);
+		len2write = pRecv[2];
+//	} else
+//		len2write = TX_THRESHOLD;
+	if((data_sending.len - data_sending.position) <= len2write)//pRecv[2])
+	{
+		//Fill all the remaining data to the TX FIFO
+//					get_fifo_info(tmp);
+//					tmp[3] = packet_len - data_ptr;
+//								ppp(tmp, 4);
+		spi_write_fifo(data_sending.data + data_sending.position, data_sending.len - data_sending.position);
+		data_sending.position = data_sending.len;
+	}
+	else
+	{
+		//Fill data to the FIFO.
+//					get_fifo_info(tmp);
+//										tmp[3] = TX_THRESHOLD;
+//													ppp(tmp, 4);
+		spi_write_fifo(data_sending.data + data_sending.position, len2write);//pRecv[2]);//
+		data_sending.position += len2write;//pRecv[2];//
+//					down(&sem_tx_wait_fifo);
+//					clr_txfifo_almost_empty_pend();
+//again:
+//					while(!is_tx_fifo_almost_empty()){	}
+//					get_fifo_info(tmp);
+//					if (tmp[2] < TX_THRESHOLD -0x05){
+//						udelay(10);
+//						goto again:
+//					}
+	}
+	*/
+
 }
 inline static void irq_rx(/*void *dev_id*/){
 //	printk(KERN_ALERT "RECV\n");
@@ -1326,8 +1378,8 @@ static int rf212_cmd_queue_handler(void *data){
 
 
 			netif_wake_queue(global_net_devs);
-			printk(KERN_ALERT "Netif Queue is awaaaaaak!!\n");
-			rbuf_print_status(&cmd_ringbuffer);
+//			printk(KERN_ALERT "Netif Queue is awaaaaaak!!\n");
+//			rbuf_print_status(&cmd_ringbuffer);
 		}
 		cmd_ = rbuf_dequeue(&cmd_ringbuffer);
 //		mutex_unlock(&mutex_irq_handling);
@@ -1513,8 +1565,8 @@ int rf212_tx(struct sk_buff *skb, struct net_device *dev){
 	if (rbuf_full(&cmd_ringbuffer))
 	{
 		netif_stop_queue(global_net_devs);
-		printk(KERN_ALERT "Netif Queue is closing\n");
-		rbuf_print_status(&cmd_ringbuffer);
+//		printk(KERN_ALERT "Netif Queue is closing\n");
+//		rbuf_print_status(&cmd_ringbuffer);
 //		add_timer(&netq_restart_timer);
 		return -1;
 	}
@@ -1626,17 +1678,21 @@ int rf212_change_mtu(struct net_device *dev, int new_mtu)
 static irqreturn_t si4463_interrupt (int irq, void *dev_id)
 {
 	write_int_with_lock(&isHandlingIrq, 1);
-	printk(KERN_ALERT "=====IRQ=====\n");
+
+//	printk(KERN_ALERT "=====IRQ=====%d\n", irq);
 //	printk(KERN_ALERT "sen_irq before: %d\n", sem_irq.count);
-	if(sem_irq.count > 0)
-		printk(KERN_ALERT "!!!!!!!!!sen_irq > 0\n");
+//	if(sem_irq.count > 0)
+//		printk(KERN_ALERT "!!!!!!!!!sen_irq > 0\n");
 	up(&sem_irq);
 //	printk(KERN_ALERT "sen_irq after: %d\n", sem_irq.count);
 //	mutex_unlock(&mutex_irq);
+
+//	disable_irq_nosync(irq);
+//	schedule_work(&irqwork);
 	return IRQ_HANDLED;
 }
 
-static int si4463_irq_handler(void* data){
+static void si4463_irq_handler(struct work_struct *work){
 	bool tx_complete_flag;
 	bool rx_flag;
 	bool tx_fifo_almost_empty_flag;
@@ -1659,8 +1715,8 @@ static int si4463_irq_handler(void* data){
 		 * 1, tx complete
 		 * 2, rx
 		 */
-		read_frr_a(&ph_pend);
-		printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
+		ph_pend = read_frr_a();
+//		printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
 //		if(ph_pend==0 || ph_pend==0xff)
 //			goto error;
 
@@ -1685,8 +1741,10 @@ static int si4463_irq_handler(void* data){
 //		}
 		//Only TX_FIFO_ALMOST_EMPTY interrupt happen. And no PACKET_SENT interrupt happen.
 		if((ph_pend & 0x22) == 0x02) {
+//			printk(KERN_ALERT "IRQ TX_FIFO_ALMOST_EMPTY\n");
 			irq_fifo_almost_empty();
 			tx_fifo_almost_empty_flag = 1;
+			clr_txfifo_almost_empty_pend();
 		}
 		//Check Tx complete
 		if((ph_pend & 0x22) == 0x22 || (ph_pend & 0x22) == 0x20) {
@@ -1741,7 +1799,8 @@ error:
 		write_int_with_lock(&isHandlingIrq, 0);
 //		mutex_unlock(&mutex_irq_handling);
 	}
-	return -1;
+//	return -1;
+//	enable_irq(NIRQ);
 }
 
 static int si4463_cmd_queue_handler(void *data){
@@ -1753,9 +1812,10 @@ static int si4463_cmd_queue_handler(void *data){
 	u8 rx[64];
 	u8 padding[64];
 	u8 rssi;
+	int len2send;
 //	struct sk_buff *skb;
-	u8 data_ptr = 0;
-	u8* data_head;
+//	u8 data_ptr = 0;
+//	u8* data_head;
 	memset(padding, 0, 64);
 	while(1/*!kthread_should_stop()*/){
 //		printk(KERN_ALERT "cmd_queue_handler:1\n");
@@ -1771,10 +1831,10 @@ static int si4463_cmd_queue_handler(void *data){
 //			printk(KERN_ALERT "%d\n",netif_xmit_frozen_or_stopped(global_net_devs));
 //			printk(KERN_ALERT "%d\n",netif_xmit_stopped(global_net_devs));
 //			printk(KERN_ALERT "%d\n",netif_queue_stopped(global_net_devs));
-
+//
 
 			netif_wake_queue(global_net_devs);
-//			printk(KERN_ALERT "Netif Queue is awaaaaaak!!\n");
+			printk(KERN_ALERT "Netif Queue is awaaaaaak!!\n");
 //			rbuf_print_status(&cmd_ringbuffer);
 		}
 
@@ -1858,63 +1918,87 @@ static int si4463_cmd_queue_handler(void *data){
 			tmp_len = skb->len;
 			data_ptr = skb->data;
 			*/
-			packet_len = cmd_->len;
-			data_head = (u8*)cmd_->data;
-			if(packet_len > 40) {
-				data_head[0] = 0x18;
-				data_head[1] = 0x02;
-				data_head[2] = 0x03;
-				data_head[3] = 0x04;
-				data_head[4] = 0x05;
-				data_head[5] = 0x06;
+			data_sending.len = cmd_->len;
+			data_sending.data = cmd_->data;
+			if(data_sending.len > 40) {
+				data_sending.data[0] = 0x18;
+				data_sending.data[1] = 0x02;
+				data_sending.data[2] = 0x03;
+				data_sending.data[3] = 0x04;
+				data_sending.data[4] = 0x05;
+				data_sending.data[5] = 0x06;
 			}
-			printk(KERN_ALERT "Len: %d\n", packet_len);
-			fifo_reset();
-			tx_set_packet_len(packet_len+1);
 
-			tmp[0] = packet_len;// >> 8) & 0xFF;
+			INIT_COMPLETION(tx_complete);
+
+			printk(KERN_ALERT "Len: %d\n", data_sending.len);
+			fifo_reset();
+			tx_set_packet_len(data_sending.len + 1);
+
+			tmp[0] = data_sending.len;// >> 8) & 0xFF;
 //			tmp[1] = (packet_len >> 0) & 0xFF;
 			spi_write_fifo(&tmp, 1);
-			if(packet_len <= MAX_FIFO_SIZE)
+//			printk(KERN_ALERT "=============1==============\n");
+			if(data_sending.len <= MAX_FIFO_SIZE)
 			{
 				//Fill all the data to the FIFO.
-				spi_write_fifo(data_head, packet_len);
-				data_ptr = packet_len;
+				spi_write_fifo(data_sending.data, data_sending.len);
+				data_sending.position = data_sending.len;
 				tx_start();
-				ret = down_timeout(&sem_tx_complete, 2*HZ);
-			} else {
+//				ret = down_timeout(&sem_tx_complete, 5*HZ);
+				ret = wait_for_completion_interruptible_timeout(
+												&tx_complete,
+												5 * HZ);
+			}else {
 				//Fill data to the FIFO.
-				spi_write_fifo(data_head, MAX_FIFO_SIZE);
-				data_ptr = MAX_FIFO_SIZE;
+				spi_write_fifo(data_sending.data, MAX_FIFO_SIZE);
+				data_sending.position = MAX_FIFO_SIZE;
 				tx_start();
+//				ret = down_timeout(&sem_tx_complete, 5*HZ);
 //				down(&sem_tx_wait_fifo);
+//				udelay(300);//500Kbps: 62.5B/ms
+//				get_fifo_info(tmp);
+//				len2send = tmp[2];
 				while(!is_tx_fifo_almost_empty()){	}
 //				clr_txfifo_almost_empty_pend();
 			}
-
-			while(data_ptr < packet_len)
+//			printk(KERN_ALERT "=============2==============\n");
+			len2send = TX_THRESHOLD;
+			while(data_sending.position < data_sending.len)
 			{
-				if((packet_len - data_ptr) <= TX_THRESHOLD)
+//				printk(KERN_ALERT "position:%d, len2send:%d, len:%d\n", data_sending.position, len2send,data_sending.len);
+				if((data_sending.len - data_sending.position) <= len2send)
 				{
 					//Fill all the remaining data to the TX FIFO
 //					get_fifo_info(tmp);
 //					tmp[3] = packet_len - data_ptr;
 //								ppp(tmp, 4);
-					spi_write_fifo(data_head + data_ptr, packet_len - data_ptr);
-					data_ptr = packet_len;
-					ret = down_timeout(&sem_tx_complete, 2*HZ);
-				}
-				else
-				{
+//					printk(KERN_ALERT "=============2.5==============\n");
+					spi_write_fifo(data_sending.data + data_sending.position, data_sending.len - data_sending.position);
+					data_sending.position = data_sending.len;
+//					ret = down_timeout(&sem_tx_complete, 5*HZ);
+					ret = wait_for_completion_interruptible_timeout(
+													&tx_complete,
+													5 * HZ);
+				} else {
+//					printk(KERN_ALERT "===============3.1============\n");
 					//Fill data to the FIFO.
 //					get_fifo_info(tmp);
 //										tmp[3] = TX_THRESHOLD;
 //													ppp(tmp, 4);
-					spi_write_fifo(data_head + data_ptr, TX_THRESHOLD);
-					data_ptr += TX_THRESHOLD;
+					spi_write_fifo(data_sending.data + data_sending.position, len2send);
+					data_sending.position += len2send;
 //					down(&sem_tx_wait_fifo);
 //					clr_txfifo_almost_empty_pend();
+//again:
+//					udelay(1524);//500Kbps: 62.5B/ms
+//					printk(KERN_ALERT "===============3.2============\n");
 					while(!is_tx_fifo_almost_empty()){	}
+//					udelay(200);
+
+					get_fifo_info(tmp);
+					len2send = tmp[2];
+//					printk(KERN_ALERT "===============%d============\n", tmp[2]);
 				}
 			}
 
@@ -1939,7 +2023,8 @@ static int si4463_cmd_queue_handler(void *data){
 			ppp(tmp, 3);
 
 out_normal:
-			if(ret == 0)
+//			if(ret == 0)
+			if(ret > 0)//wait_for_completion_interruptible_timeout
 				clr_packet_sent_pend();
 			else {
 				printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!SEND ERROR, RESETING!!!!!!!!!!!!!!!!!\n");
@@ -2196,6 +2281,8 @@ int si4463_open(struct net_device *dev)
 
 
 	printk(KERN_ALERT "si4463_o2pen\n");
+	INIT_WORK(&irqwork, si4463_irq_handler);
+
 	/* spi setup :
 	 * 		SPI_MODE_0
 	 * 		MSBFIRST
@@ -2346,13 +2433,17 @@ int si4463_release(struct net_device *dev)
 
 int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 {
-	if (rbuf_full(&cmd_ringbuffer))
-	{
-		netif_stop_queue(global_net_devs);
+//	if (rbuf_full(&cmd_ringbuffer))
+//	{
+//		netif_stop_queue(global_net_devs);
 //		printk(KERN_ALERT "Netif Queue is closing\n");
 //		rbuf_print_status(&cmd_ringbuffer);
 //		add_timer(&netq_restart_timer);
-		return -1;
+//		return -1;
+//	}
+	if (rbuf_almost_full(&cmd_ringbuffer)) {
+		netif_stop_queue(global_net_devs);
+		printk(KERN_ALERT "Netif Queue is closing\n");
 	}
 //	printk(KERN_ALERT "si4463_tx\n");
     struct module_priv *priv = (struct module_priv *) netdev_priv(dev);//dev->priv;
@@ -2378,7 +2469,7 @@ int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 	struct cmd cmd_;
 	cmd_.type = SEND_CMD;
 	cmd_.len = skb->len;
-	cmd_.data = (void*)skb->data;
+	cmd_.data = skb->data;
 
 	rbuf_enqueue(&cmd_ringbuffer, &cmd_);//must before the kfree
 
@@ -2511,6 +2602,9 @@ void module_net_init(struct net_device *dev)
 	/* keep the default flags, just add NOARP */
 	dev->flags           |= IFF_NOARP;
 	dev->features        |= NETIF_F_HW_CSUM;
+	dev->features		 |= NETIF_F_LLTX;
+
+	dev->tx_queue_len = 10;
 	/*
 	 * Then, initialize the priv field. This encloses the statistics
 	 * and a few private fields.
