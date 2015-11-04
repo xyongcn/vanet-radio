@@ -1,0 +1,46 @@
+From a8824135d77d5a030f5f6fd3165733cdf2ea5f1d Mon Sep 17 00:00:00 2001
+From: Auto Configured <auto.configured>
+Date: Mon, 26 Oct 2015 20:16:16 -0700
+Subject: [PATCH] default chan for 802154
+
+---
+ net/mac802154/monitor.c |    2 +-
+ net/mac802154/wpan.c    |    3 ++-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/net/mac802154/monitor.c b/net/mac802154/monitor.c
+index 434a26f..dc617fa 100644
+--- a/net/mac802154/monitor.c
++++ b/net/mac802154/monitor.c
+@@ -111,6 +111,6 @@ void mac802154_monitor_setup(struct net_device *dev)
+ 	priv = netdev_priv(dev);
+ 	priv->type = IEEE802154_DEV_MONITOR;
+ 
+-	priv->chan = MAC802154_CHAN_NONE; /* not initialized */
++	priv->chan = 0;//MAC802154_CHAN_NONE; /* not initialized */
+ 	priv->page = 0;
+ }
+diff --git a/net/mac802154/wpan.c b/net/mac802154/wpan.c
+index 2ca2f4d..8e5fbd8 100644
+--- a/net/mac802154/wpan.c
++++ b/net/mac802154/wpan.c
+@@ -325,6 +325,7 @@ mac802154_wpan_xmit(struct sk_buff *skb, struct net_device *dev)
+ 	if (chan == MAC802154_CHAN_NONE ||
+ 	    page >= WPAN_NUM_PAGES ||
+ 	    chan >= WPAN_NUM_CHANNELS) {
++		printk(KERN_ALERT "mac802154_wpan_xmit failed: chan %d, page %d\n", chan, page);
+ 		kfree_skb(skb);
+ 		return NETDEV_TX_OK;
+ 	}
+@@ -372,7 +373,7 @@ void mac802154_wpan_setup(struct net_device *dev)
+ 	priv = netdev_priv(dev);
+ 	priv->type = IEEE802154_DEV_WPAN;
+ 
+-	priv->chan = MAC802154_CHAN_NONE;
++	priv->chan = 0;//MAC802154_CHAN_NONE;
+ 	priv->page = 0;
+ 
+ 	spin_lock_init(&priv->mib_lock);
+-- 
+1.7.9.5
+

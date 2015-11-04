@@ -50,14 +50,14 @@ void enable_chip_irq(void);
 void tx_start(void);
 void rx_start(void);					// 开始接收
 void tx_start_1B(void);
-void tx_set_packet_len(u16 packetlen);
+void tx_set_packet_len(u8 packetlen);
 
 void change_state2tx_tune(void);
 
 void set_frr_ctl(void);
 //Status Getting Method
 void request_device_state(void);
-u16 get_packet_info(void);
+u8 get_packet_info(void);
 void get_ph_status(u8 *rx);
 void get_modem_status(u8 *rx);
 void get_fifo_info(u8 * rx);

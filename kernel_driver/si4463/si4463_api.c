@@ -218,7 +218,6 @@ void reset(void) {
 //
 
 	setRFParameters();
-	Function_set_tran_property();
 	fifo_reset();
 
 }
@@ -437,6 +436,8 @@ void setRFParameters(void)  //设置RF参数
     }
 
     set_frr_ctl(); //set frr register
+	Function_set_tran_property();
+
 }
 
 
@@ -615,21 +616,35 @@ void get_interrupt_status(u8* p2)		// 中断
 	//spi_read(9,GET_INT_STATUS);
 }
 
-u16 get_packet_info()
-{
-	unsigned char p[6];
-	unsigned char p2[3];
-	u16 bLen;
+//u16 get_packet_info()
+//{
+//	unsigned char p[6];
+//	unsigned char p2[3];
+//	u16 bLen;
+//
+//	p[0] = CMD_PACKET_INFO;
+//	p[1] = 0x00;
+//	p[2] = 0x00;
+//	p[3] = 0x00;
+//	p[4] = 0x00;
+//	p[5] = 0x00;
+//	SendCmdReceiveAnswer(1,3,p,p2);
+//	bLen = ((u16)p2[1] << 8) | (u16)p2[2];
+//	return bLen;
+//}
+u8 get_packet_info(void) {
+  unsigned char p[3];
+  unsigned char p2[3];
+  p[0] = PACKET_INFO ;
+//  p[1] = 0x00 ; 			// 通道0
+//  p[2] = 0x00;
+//  p[3] = 0x00;
+//  p[4] = 0x00;
+//  p[5] = 0x00;
 
-	p[0] = CMD_PACKET_INFO;
-	p[1] = 0x00;
-	p[2] = 0x00;
-	p[3] = 0x00;
-	p[4] = 0x00;
-	p[5] = 0x00;
-	SendCmdReceiveAnswer(1,3,p,p2);
-	bLen = ((u16)p2[1] << 8) | (u16)p2[2];
-	return bLen;
+  SendCmdReceiveAnswer(1, 3, p, p2);
+//  ppp(p2,3);
+  return p2[2];
 }
 /*
 void clr_interrupt_nosleep(void)		// 清中断标志
@@ -714,7 +729,7 @@ void tx_start_1B(void)					// 开始发射
 	spi_write_cmd(1, p);
 }
 
-void tx_set_packet_len(u16 packetlen)
+void tx_set_packet_len(u8 packetlen)
 {
 //	printk(KERN_ALERT "PACKET Len: %d\n", packetlen);
 	u8 abApi_Write[6];
@@ -740,10 +755,10 @@ void rx_start(void)					// 开始接收
 	p[1] = freq_channel ; 			// 通道0
 	p[2] = 0x00;
 	p[3] = 0x00;
-	p[4] = 0x40;
+	p[4] = 0x00;
 	p[5] = 0x00;
-	p[6] = 0x03;
-	p[7] = 0x03;
+	p[6] = 0x06;
+	p[7] = 0x06;
 	spi_write_cmd(8, p);///5
 }
 
@@ -858,7 +873,7 @@ void get_ph_status(u8 *rx){
 	unsigned char p[2];
 
 	p[0] = GET_PH_STATUS;
-	p[1] = 0xff;
+	p[1] = 0xfb;
 	SendCmdReceiveAnswer(2, 3, p, rx);
 }
 
@@ -873,7 +888,7 @@ void get_modem_status(u8 *rx){
 
 u8 read_frr_a(void) {
 	u8 cmd[2];
-	u8 rx[2];
+	u8 rx[3];
 	int j;
 	cmd[0] = FRR_A_READ;
 	cmd[1] = 0x00;
@@ -891,18 +906,11 @@ u8 read_frr_a(void) {
 				&& rx[1] != 0x10 && rx[1] != 0x11
 				/*(*value == 0 || *value == 0xff)*/; j--)
 	{
-//		mutex_lock(&mutex_spi);
-//		get_ph_status(rx);
-//		mutex_unlock(&mutex_spi);
-//		*value = rx[1];
+		get_ph_status(rx);
 //		printk(KERN_ALERT "read frra retry!\n");
-		cs_low();
-//		spidev_global.buffer = &cmd;
-	//	spidev_sync_write(&spidev_global, 1);
-	//	cmd = 0x00;
-		spidev_sync_transfer(&spidev_global, &cmd, rx,  2);
-		cs_high();
-//		mutex_unlock(&mutex_spi);
+//		cs_low();
+//		spidev_sync_transfer(&spidev_global, &cmd, rx,  2);
+//		cs_high();
 
 	}
 
