@@ -10,9 +10,19 @@
 
 1. make
 
-#CONFIGURING
-1. patch the edison kernel with 0001-default-chan-for-802154.patch (for yocto release 2.0), rebuild the edison-image.
-	* http://www.yoctoproject.org/docs/1.6.1/dev-manual/dev-manual.html#patching-the-kernel
+#CONFIGURING-system
+1. Patch the edison kernel with 0001-default-chan-for-802154.patch (for yocto release 2.0), rebuild the edison-image.
+	1. clean the linux build.
+		* bitbake -c cleansstate linux-yocto
+	2. patch:
+		* https://github.com/xyongcn/vanet-radio/blob/master/kernel_driver/0001-default-chan-for-802154.patch
+		* http://www.yoctoproject.org/docs/1.6.1/dev-manual/dev-manual.html#patching-the-kernel
+1. Replace the defconfig for kernel.
+	* mv defconfig edison-src/device-software/meta-edison/recipes-kernel/linux/files
+3. rebuild:
+	* bitbake edison-image
+
+#CONFIGURING-kernel driver
 1. Move .ko file and tools/* into edison. 
 1. tar -xvzf tools/lowpan-tools-0.3.1.tar.gz
 2. chmod -R 777 *
