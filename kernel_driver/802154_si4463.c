@@ -33,6 +33,9 @@
 #include "802154-si4463.h"
 #include "si4463/si4463_api.h"
 
+//for mac_cb debug
+#include <net/ieee802154_netdev.h>
+
 /* GLOBAL */
 struct {
 	u8* data;
@@ -430,8 +433,9 @@ static int si4463_tx(struct ieee802154_dev *dev, struct sk_buff *skb)
 	int i, rssi;
 
 //	dev_dbg(printdev(devrec), "tx packet of %d bytes\n", skb->len);
+
 again:
-	for (i = 0; i < 10; i++)
+	for (i = 0; i < 5; i++)
 	{
 		rssi = get_CCA();
 		if (rssi) {
@@ -443,7 +447,6 @@ again:
 
 
 	change_state2tx_tune();
-
 	data_sending.len = skb->len;
 	data_sending.data = skb->data;
 //	if (data_sending.len > 40)
@@ -471,8 +474,20 @@ again:
 //		spi_write_fifo(padding, MAX_FIFO_SIZE - data_sending.len - 1);
 //	}
 
+//	int fp = filp_open("/home/root/log", O_CREAT|O_APPEND|O_RDWR, S_IRWXU);
+//	int time_s = jiffies_to_msecs(jiffies);
+
+	while(gpio_get_value(NIRQ) <=0 ) {
+		printk(KERN_ALERT "Before tx, NIRQ PIN: %d\n", gpio_get_value(NIRQ));
+		clr_interrupt();
+	}
+
+
 	tx_start();
-	ret = wait_for_completion_interruptible_timeout(&devrec->tx_complete, 3 * HZ);
+	ret = wait_for_completion_interruptible_timeout(&devrec->tx_complete, 7 * HZ);
+//	int time_e = jiffies_to_msecs(jiffies);
+//	write2file(fp, time_s - time_e, sizeof(int));
+//	write2file(fp, "\n", 1);
 ////			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
 //			//semaphore
 ////			down(&sem_tx_complete);
@@ -487,10 +502,12 @@ again:
 out_normal:
 //			if(ret == 0)
 	if (ret > 0)	//wait_for_completion_interruptible_timeout
-		clr_packet_sent_pend();
+//		clr_packet_sent_pend();
+		clr_interrupt();
 	else
 	{
 		printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!SEND ERROR, RESETING!!!!!!!!!!!!!!!!!\n");
+		printk(KERN_ALERT "NIRQ PIN: %d\n", gpio_get_value(NIRQ));
 		reset();
 	}
 	rx_start();
@@ -574,6 +591,132 @@ static int si4463_set_channel(struct ieee802154_dev *dev,
 	return 0;
 }
 
+
+
+
+
+
+static inline void mac802154_haddr_copy_swap(u8 *dest, const u8 *src)
+{
+	int i;
+	for (i = 0; i < IEEE802154_ADDR_LEN; i++)
+		dest[IEEE802154_ADDR_LEN - i - 1] = src[i];
+}
+static inline int mac802154_fetch_skb_u8(struct sk_buff *skb, u8 *val)
+{
+	if (unlikely(!pskb_may_pull(skb, 1)))
+		return -EINVAL;
+
+	*val = skb->data[0];
+	skb_pull(skb, 1);
+
+	return 0;
+}
+
+static inline int mac802154_fetch_skb_u16(struct sk_buff *skb, u16 *val)
+{
+	if (unlikely(!pskb_may_pull(skb, 2)))
+		return -EINVAL;
+
+	*val = skb->data[0] | (skb->data[1] << 8);
+	skb_pull(skb, 2);
+
+	return 0;
+}
+static int mac802154_parse_frame_start(struct sk_buff *skb)
+{
+	u8 *head = skb->data;
+	u16 fc;
+
+	if (mac802154_fetch_skb_u16(skb, &fc) ||
+	    mac802154_fetch_skb_u8(skb, &(mac_cb(skb)->seq)))
+		goto err;
+
+	printk(KERN_ALERT "fc: %04x dsn: %02x\n", fc, head[2]);
+
+	mac_cb(skb)->flags = IEEE802154_FC_TYPE(fc);
+	mac_cb(skb)->sa.addr_type = IEEE802154_FC_SAMODE(fc);
+	mac_cb(skb)->da.addr_type = IEEE802154_FC_DAMODE(fc);
+
+	if (fc & IEEE802154_FC_INTRA_PAN)
+		mac_cb(skb)->flags |= MAC_CB_FLAG_INTRAPAN;
+
+	if (mac_cb(skb)->da.addr_type != IEEE802154_ADDR_NONE) {
+		if (mac802154_fetch_skb_u16(skb, &(mac_cb(skb)->da.pan_id)))
+			goto err;
+
+		/* source PAN id compression */
+		if (mac_cb_is_intrapan(skb))
+			mac_cb(skb)->sa.pan_id = mac_cb(skb)->da.pan_id;
+
+		printk(KERN_ALERT "dest PAN addr: %04x\n", mac_cb(skb)->da.pan_id);
+
+		if (mac_cb(skb)->da.addr_type == IEEE802154_ADDR_SHORT) {
+			u16 *da = &(mac_cb(skb)->da.short_addr);
+
+			if (mac802154_fetch_skb_u16(skb, da))
+				goto err;
+
+			printk(KERN_ALERT "destination address is short: %04x\n",
+				 mac_cb(skb)->da.short_addr);
+		} else {
+			if (!pskb_may_pull(skb, IEEE802154_ADDR_LEN))
+				goto err;
+
+			mac802154_haddr_copy_swap(mac_cb(skb)->da.hwaddr,
+						  skb->data);
+			skb_pull(skb, IEEE802154_ADDR_LEN);
+
+			printk(KERN_ALERT "destination address is hardware\n");
+		}
+	}
+
+	if (mac_cb(skb)->sa.addr_type != IEEE802154_ADDR_NONE) {
+		/* non PAN-compression, fetch source address id */
+		if (!(mac_cb_is_intrapan(skb))) {
+			u16 *sa_pan = &(mac_cb(skb)->sa.pan_id);
+
+			if (mac802154_fetch_skb_u16(skb, sa_pan))
+				goto err;
+		}
+
+		printk(KERN_ALERT "source PAN addr: %04x\n", mac_cb(skb)->da.pan_id);
+
+		if (mac_cb(skb)->sa.addr_type == IEEE802154_ADDR_SHORT) {
+			u16 *sa = &(mac_cb(skb)->sa.short_addr);
+
+			if (mac802154_fetch_skb_u16(skb, sa))
+				goto err;
+
+			printk(KERN_ALERT "source address is short: %04x\n",
+				 mac_cb(skb)->sa.short_addr);
+		} else {
+			if (!pskb_may_pull(skb, IEEE802154_ADDR_LEN))
+				goto err;
+
+			mac802154_haddr_copy_swap(mac_cb(skb)->sa.hwaddr,
+						  skb->data);
+			skb_pull(skb, IEEE802154_ADDR_LEN);
+
+			printk(KERN_ALERT "source address is hardware\n");
+		}
+	}
+
+	return 0;
+err:
+	return -EINVAL;
+}
+
+
+
+
+
+
+
+
+
+
+
 static int si4463_handle_rx(struct si4463 *devrec)
 {
 	u8 len = 0;
@@ -593,12 +736,22 @@ static int si4463_handle_rx(struct si4463 *devrec)
 		goto out;
 	}
 	spi_read_fifo(skb_put(skb, len), len);
-    //get data from hardware register
+//	ppp(skb->data, len);
+//    //get data from hardware register
+//	printk(KERN_ALERT "head: %x, data: %x\n", skb->head, skb->data);
+//	mac802154_parse_frame_start(skb);
+//	printk(KERN_ALERT "da.addr_type: %x, da.pan_id: %x, da.short_addr: %x\n",
+//			mac_cb(skb)->da.addr_type, mac_cb(skb)->da.pan_id, mac_cb(skb)->da.short_addr);
+
+
 	fifo_reset();
+	clr_interrupt();
+	rx_start();
 
 	ieee802154_rx_irqsafe(devrec->dev, skb, lqi);
-	clr_packet_rx_pend();
-	rx_start();
+//	clr_packet_rx_pend();
+
+
 //	/* Turn off reception of packets off the air. This prevents the
 //	 * device from overwriting the buffer while we're reading it. */
 //	ret = read_short_reg(devrec, REG_BBREG1, &val);
@@ -654,7 +807,7 @@ static struct ieee802154_ops si4463_ops = {
 static irqreturn_t si4463_isr(int irq, void *data)
 {
 	struct si4463 *devrec = data;
-	printk(KERN_ALERT "=====IRQ=====\n");
+//	printk(KERN_ALERT "=====IRQ=====\n");
 	disable_irq_nosync(irq);
 
 	schedule_work(&devrec->irqwork);
@@ -860,7 +1013,7 @@ static int si4463_probe(struct spi_device *spi)
 	devrec->dev->priv = devrec;
 	devrec->dev->parent = &devrec->spi->dev;
 	devrec->dev->phy->channels_supported[0] = 915;
-	devrec->dev->flags = IEEE802154_HW_OMIT_CKSUM|IEEE802154_HW_AACK;
+	devrec->dev->flags = IEEE802154_HW_OMIT_CKSUM;//|IEEE802154_HW_AACK;
 
 	dev_dbg(printdev(devrec), "registered si4463\n");
 	ret = ieee802154_register_device(devrec->dev);
@@ -941,6 +1094,8 @@ static struct spi_driver spidev_spi_driver = {
 	 * most issues; the controller driver handles the rest.
 	 */
 };
+
+
 
 module_spi_driver(spidev_spi_driver);
 

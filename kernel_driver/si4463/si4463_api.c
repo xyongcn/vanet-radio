@@ -39,8 +39,14 @@ int get_CCA_latch(void){
 bool get_CCA(void){
 	u8 tmp[10];
 	get_modem_status(tmp);
+	if(tmp[3] > 0xa0) {
+		printk(KERN_ALERT "rssi: %d\n", tmp[3]);
+		return 1;
+	} else {
+		return 0;
+	}
 
-	return tmp[3] > 0x55 ? 1 : 0;
+//	return tmp[3] > 0xa0 ? 1 : 0;
 //	return gpio_get_value(GPIO0)>0 ? 1 : 0;
 }
 
@@ -592,8 +598,9 @@ void clr_preamble_detect_pend(void){
 
 void clr_interrupt(void)		// 清中断标志
 {
-	unsigned char p[4];
 
+	unsigned char p[4];
+again:
 	p[0] = GET_INT_STATUS;
 	p[1] = 0;
 	p[2] = 0;
@@ -601,6 +608,12 @@ void clr_interrupt(void)		// 清中断标志
 	//SendCmdReceiveAnswer(4,9,p);
 	spi_write_cmd(4, p);
 	//spi_read(9,GET_INT_STATUS);
+	ndelay(100);
+	if(gpio_get_value(NIRQ) <=0){
+//		printk(KERN_ALERT "clr_interrupt: ERROR!NIRQ PIN: %d\n", gpio_get_value(NIRQ));
+		goto again;
+	}
+//	printk(KERN_ALERT "NIRQ PIN: %d\n", gpio_get_value(NIRQ));
 }
 
 void get_interrupt_status(u8* p2)		// 中断
@@ -913,7 +926,10 @@ u8 read_frr_a(void) {
 //		cs_high();
 
 	}
-
+	if (j<=5){
+		printk(KERN_ALERT "get_ph_status ERROR!!!\n");
+		ppp(rx, 3);
+	}
 	return rx[1];
 }
 
