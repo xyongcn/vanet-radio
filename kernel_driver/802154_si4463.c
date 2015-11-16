@@ -510,8 +510,9 @@ out_normal:
 		printk(KERN_ALERT "NIRQ PIN: %d\n", gpio_get_value(NIRQ));
 		reset();
 	}
-	rx_start();
-
+//	rx_start();
+//	u8 status = get_device_state();
+//	printk(KERN_ALERT "DEVICE STATUS AFTER TX: %x\n", status);
     return 0;
 }
 
@@ -727,7 +728,7 @@ static int si4463_handle_rx(struct si4463 *devrec)
 
 
 	len = get_packet_info();
-	printk(KERN_ALERT "RECV LEN: %d\n", len);
+//	printk(KERN_ALERT "RECV LEN: %d\n", len);
 //	get_fifo_info(d);
 //	ppp(d, 3);
 	skb = alloc_skb(len, GFP_KERNEL);
@@ -827,6 +828,7 @@ static void si4463_isrwork(struct work_struct *work)
 	u8 ph_pend;
 	u8 md_status;
 
+	preamble_detect = 0;
 	tx_complete_flag = 0;
 	tx_fifo_almost_empty_flag = 0;
 	rx_flag = 0;
@@ -837,7 +839,9 @@ static void si4463_isrwork(struct work_struct *work)
 	 * 2, rx
 	 */
 	ph_pend = read_frr_a();
+//	u8 status = get_device_state();
 //	printk(KERN_ALERT "PH_PEND: %x\n", ph_pend);
+//	printk(KERN_ALERT "DEVICE STATUS: %x\n", status);
 //		if(ph_pend==0 || ph_pend==0xff)
 //			goto error;
 

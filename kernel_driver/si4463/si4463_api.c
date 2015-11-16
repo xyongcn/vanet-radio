@@ -128,10 +128,6 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	spidev_sync_write(&spidev_global, byteCountTx);
 	cs_high();
 
-	if(byteCountRx == 0) {
-//		mutex_unlock(&mutex_spi);
-		return NULL;
-	}
 
 //	ndelay(100);
 //	ndelay(10);
@@ -139,6 +135,12 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 
 //	if(!getCTS_gpio())
 	getCTS();
+
+	if(byteCountRx == 0) {
+//		mutex_unlock(&mutex_spi);
+		cs_high();
+		return NULL;
+	}
 
 //	for (k=0; k<byteCountRx; k++){
 //		spidev_global.buffer = &(out_buff[k]);
@@ -235,6 +237,7 @@ void set_frr_ctl(void) {
   p[2] = 0x04;
   p[3] = 0x00;
   p[4] = 0x04; //frr_a, INT_PH_PEND: Packet Handler status pending.
+//  p[4] = 0x03; //frr_a, INT_PH_STATUS
   p[5] = 0x02; //frr_b
   p[6] = 0x09; //frr_c
   p[7] = 0x00; //frr_d
@@ -599,16 +602,16 @@ void clr_preamble_detect_pend(void){
 void clr_interrupt(void)		// 清中断标志
 {
 
-	unsigned char p[4];
+	unsigned char p[9];
 again:
 	p[0] = GET_INT_STATUS;
 	p[1] = 0;
 	p[2] = 0;
 	p[3] = 0;
-	//SendCmdReceiveAnswer(4,9,p);
+//	SendCmdReceiveAnswer(4,9,p,p);
 	spi_write_cmd(4, p);
 	//spi_read(9,GET_INT_STATUS);
-	ndelay(100);
+//	ndelay(100);
 	if(gpio_get_value(NIRQ) <=0){
 //		printk(KERN_ALERT "clr_interrupt: ERROR!NIRQ PIN: %d\n", gpio_get_value(NIRQ));
 		goto again;
@@ -726,7 +729,8 @@ void tx_start(void)					// 开始发射
 
 //	p[2] = 0x50;//TX_TUNE
 //	p[2] = 0x60;//RX_TUNE
-	p[2] = 0x30;//ready
+//	p[2] = 0x30;//ready
+	p[2] = 0x80;//RX
 
 	p[3] = 0x00;
 //	p[4] = 0x40;
@@ -771,7 +775,7 @@ void rx_start(void)					// 开始接收
 	p[4] = 0x00;
 	p[5] = 0x00;
 	p[6] = 0x06;
-	p[7] = 0x06;
+	p[7] = 0x08;
 	spi_write_cmd(8, p);///5
 }
 
@@ -902,7 +906,7 @@ void get_modem_status(u8 *rx){
 u8 read_frr_a(void) {
 	u8 cmd[2];
 	u8 rx[3];
-	int j;
+	int j=50;
 	cmd[0] = FRR_A_READ;
 	cmd[1] = 0x00;
 
@@ -914,23 +918,31 @@ u8 read_frr_a(void) {
 	spidev_sync_transfer(&spidev_global, &cmd, rx,  2);
 	cs_high();
 //	mutex_unlock(&mutex_spi);
+//	printk(KERN_ALERT "FRR READ: %x, %x\n", rx[0], rx[1]);
+//	for(j=50; j>=0 && rx[1] != 0x22 && rx[1] != 0x20
+//				&& rx[1] != 0x10 && rx[1] != 0x11
+//				/*(*value == 0 || *value == 0xff)*/; j--)
+	if(rx[1] == 0x22 || rx[1] == 0x20
+				|| rx[1] == 0x10 || rx[1] == 0x11) {
+		return rx[1];
+	}
 
-	for(j=50; j>=0 && rx[1] != 0x22 && rx[1] != 0x20
-				&& rx[1] != 0x10 && rx[1] != 0x11
-				/*(*value == 0 || *value == 0xff)*/; j--)
-	{
+	do {
 		get_ph_status(rx);
 //		printk(KERN_ALERT "read frra retry!\n");
 //		cs_low();
 //		spidev_sync_transfer(&spidev_global, &cmd, rx,  2);
 //		cs_high();
+		j--;
 
-	}
+	} while( j>=0 && rx[2] != 0x22 && rx[2] != 0x20
+	&& rx[2] != 0x10 && rx[2] != 0x11);
+
 	if (j<=5){
 		printk(KERN_ALERT "get_ph_status ERROR!!!\n");
 		ppp(rx, 3);
 	}
-	return rx[1];
+	return rx[2];
 }
 
 void read_frr_b(u8 *value) {
@@ -956,4 +968,12 @@ void read_frr_b(u8 *value) {
 //		*value = rx[1];
 //	}
 
+}
+
+u8 get_device_state(){
+	u8 p[2], rx[2];
+	p[0] = REQUEST_DEVICE_STATE;
+	p[1] = 0x00;
+	SendCmdReceiveAnswer(2, 3, p, rx);
+	return rx[1];
 }

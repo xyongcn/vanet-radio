@@ -56,7 +56,7 @@ void change_state2tx_tune(void);
 
 void set_frr_ctl(void);
 //Status Getting Method
-void request_device_state(void);
+u8 get_device_state(void);
 u8 get_packet_info(void);
 void get_ph_status(u8 *rx);
 void get_modem_status(u8 *rx);
