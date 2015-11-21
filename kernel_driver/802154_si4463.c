@@ -50,6 +50,17 @@ struct net_device *global_net_devs;
 struct spi_device *spi_save;
 struct spidev_data spidev_global;
 
+DEFINE_MUTEX(mutex_spi);
+wait_queue_head_t wait_withdraw;
+/* TX withdraw timer */
+struct timer_list tx_withdraw_timer;
+u8 tx_approved = 1;
+static void withdraw(unsigned long data)
+{
+	tx_approved = 1;
+//    printk(KERN_ALERT "tx is now approved\n");
+	wake_up_interruptible(&wait_withdraw);
+}
 
 /* PIN MUX */
 #define pin_mux_num  31
@@ -302,7 +313,7 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 
 //	spin_lock_irq(&spidev->spi_lock);
 //	down(&sem_spi);
-//	mutex_lock(&mutex_spi);
+//	mutex_lock(&devrec->mutex_spi);
 	if (spidev->spi == NULL)
 		status = -ESHUTDOWN;
 	else
@@ -415,6 +426,12 @@ struct si4463 {
 	struct completion tx_complete;
 	struct work_struct irqwork;
 	u8 *buf; /* 3 bytes. Used for SPI single-register transfers. */
+
+	struct mutex mutex_spi;
+
+
+	bool irq_busy;
+	spinlock_t lock;
 };
 
 #define printdev(X) (&X->spi->dev)
@@ -439,25 +456,39 @@ again:
 	{
 		rssi = get_CCA();
 		if (rssi) {
-			ndelay(1000);
+//			ndelay(1000);
+			tx_approved = 0;
+			add_timer(&tx_withdraw_timer);
+			wait_event_interruptible(wait_withdraw, tx_approved);
 			goto again;
 		}
 		ndelay(95);
 	}
 
+	spin_lock(&devrec->lock);
+	if  (devrec->irq_busy) {
+		printk(KERN_ALERT "TX: irq_busy!\n");
+		spin_unlock(&devrec->lock);
+		return -EBUSY;
+	}
+	spin_unlock(&devrec->lock);
 
 	change_state2tx_tune();
+	while(gpio_get_value(NIRQ) <=0 ) {
+		printk(KERN_ALERT "Before tx, NIRQ PIN: %d\n", gpio_get_value(NIRQ));
+		spin_lock(&devrec->lock);
+		if  (devrec->irq_busy) {
+			printk(KERN_ALERT "TX222: irq_busy!\n");
+			spin_unlock(&devrec->lock);
+			rx_start();
+			return -EBUSY;
+		}
+		spin_unlock(&devrec->lock);
+//		clr_interrupt();
+	}
+
 	data_sending.len = skb->len;
 	data_sending.data = skb->data;
-//	if (data_sending.len > 40)
-//	{
-//		data_sending.data[0] = 0x18;
-//		data_sending.data[1] = 0x02;
-//		data_sending.data[2] = 0x03;
-//		data_sending.data[3] = 0x04;
-//		data_sending.data[4] = 0x05;
-//		data_sending.data[5] = 0x06;
-//	}
 
 	INIT_COMPLETION(devrec->tx_complete);
 
@@ -476,12 +507,6 @@ again:
 
 //	int fp = filp_open("/home/root/log", O_CREAT|O_APPEND|O_RDWR, S_IRWXU);
 //	int time_s = jiffies_to_msecs(jiffies);
-
-	while(gpio_get_value(NIRQ) <=0 ) {
-		printk(KERN_ALERT "Before tx, NIRQ PIN: %d\n", gpio_get_value(NIRQ));
-		clr_interrupt();
-	}
-
 
 	tx_start();
 	ret = wait_for_completion_interruptible_timeout(&devrec->tx_complete, 7 * HZ);
@@ -510,7 +535,7 @@ out_normal:
 		printk(KERN_ALERT "NIRQ PIN: %d\n", gpio_get_value(NIRQ));
 		reset();
 	}
-//	rx_start();
+	rx_start();
 //	u8 status = get_device_state();
 //	printk(KERN_ALERT "DEVICE STATUS AFTER TX: %x\n", status);
     return 0;
@@ -811,6 +836,9 @@ static irqreturn_t si4463_isr(int irq, void *data)
 //	printk(KERN_ALERT "=====IRQ=====\n");
 	disable_irq_nosync(irq);
 
+	spin_lock(&devrec->lock);
+	devrec->irq_busy = 1;
+	spin_unlock(&devrec->lock);
 	schedule_work(&devrec->irqwork);
 
 	return IRQ_HANDLED;
@@ -832,7 +860,7 @@ static void si4463_isrwork(struct work_struct *work)
 	tx_complete_flag = 0;
 	tx_fifo_almost_empty_flag = 0;
 	rx_flag = 0;
-
+	unsigned long flags;
 	/*
 	 * read FRR_A for PH_STATUS_PEND (or status????)
 	 * 1, tx complete
@@ -920,6 +948,9 @@ error:
 	}
 
 out:
+	spin_lock_irqsave(&devrec->lock, flags);
+	devrec->irq_busy = 0;
+	spin_unlock_irqrestore(&devrec->lock, flags);
 	enable_irq(devrec->spi->irq);
 }
 
@@ -1003,6 +1034,8 @@ static int si4463_probe(struct spi_device *spi)
 
 
 	mutex_init(&devrec->buffer_mutex);
+	mutex_init(&devrec->mutex_spi);
+	spin_lock_init(&devrec->lock);
 	init_completion(&devrec->tx_complete);
 	INIT_WORK(&devrec->irqwork, si4463_isrwork);
 	devrec->spi = spi;
@@ -1040,6 +1073,15 @@ static int si4463_probe(struct spi_device *spi)
 	devrec->spi->irq = irq;
 
 	memset(padding, 0, MAX_FIFO_SIZE);
+
+	/* setup timer */
+	setup_timer(&tx_withdraw_timer, withdraw, 0);
+	tx_withdraw_timer.expires = jiffies + HZ/1000; //jiffies + HZ/2 are 0.5s
+	tx_withdraw_timer.function = withdraw;
+	tx_withdraw_timer.data = 0;
+
+	/* Waiting Queue */
+	init_waitqueue_head(&wait_withdraw);
 
 	return 0;
 

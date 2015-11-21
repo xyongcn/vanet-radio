@@ -116,7 +116,7 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	//printk(KERN_ALERT "Send CMD! \n");
 
 
-//	mutex_lock(&mutex_spi);
+	mutex_lock(&mutex_spi);
 
 	cs_low();
 //	for (i=0; i<byteCountTx; i++){
@@ -137,8 +137,8 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	getCTS();
 
 	if(byteCountRx == 0) {
-//		mutex_unlock(&mutex_spi);
 		cs_high();
+		mutex_unlock(&mutex_spi);
 		return NULL;
 	}
 
@@ -151,7 +151,7 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 	spidev_global.buffer = out_buff;
 	spidev_sync_read(&spidev_global, byteCountRx);
 	cs_high();
-//	mutex_unlock(&mutex_spi);
+	mutex_unlock(&mutex_spi);
 	return out_buff;
 }
 /*
@@ -613,7 +613,7 @@ again:
 	//spi_read(9,GET_INT_STATUS);
 //	ndelay(100);
 	if(gpio_get_value(NIRQ) <=0){
-//		printk(KERN_ALERT "clr_interrupt: ERROR!NIRQ PIN: %d\n", gpio_get_value(NIRQ));
+		printk(KERN_ALERT "clr_interrupt: ERROR!NIRQ PIN: %d\n", gpio_get_value(NIRQ));
 		goto again;
 	}
 //	printk(KERN_ALERT "NIRQ PIN: %d\n", gpio_get_value(NIRQ));
@@ -728,9 +728,9 @@ void tx_start(void)					// 开始发射
 	p[1] = freq_channel ;  			// 通道0
 
 //	p[2] = 0x50;//TX_TUNE
-//	p[2] = 0x60;//RX_TUNE
+	p[2] = 0x60;//RX_TUNE
 //	p[2] = 0x30;//ready
-	p[2] = 0x80;//RX
+//	p[2] = 0x80;//RX
 
 	p[3] = 0x00;
 //	p[4] = 0x40;
@@ -922,8 +922,7 @@ u8 read_frr_a(void) {
 //	for(j=50; j>=0 && rx[1] != 0x22 && rx[1] != 0x20
 //				&& rx[1] != 0x10 && rx[1] != 0x11
 //				/*(*value == 0 || *value == 0xff)*/; j--)
-	if(rx[1] == 0x22 || rx[1] == 0x20
-				|| rx[1] == 0x10 || rx[1] == 0x11) {
+	if(rx[1] != 0 && rx[1] != 0xff) {
 		return rx[1];
 	}
 
@@ -935,8 +934,7 @@ u8 read_frr_a(void) {
 //		cs_high();
 		j--;
 
-	} while( j>=0 && rx[2] != 0x22 && rx[2] != 0x20
-	&& rx[2] != 0x10 && rx[2] != 0x11);
+	} while( j>=0 && rx[2] == 0 || rx[2] == 0xff);
 
 	if (j<=5){
 		printk(KERN_ALERT "get_ph_status ERROR!!!\n");
