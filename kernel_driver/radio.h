@@ -62,6 +62,10 @@ struct module_priv
 {
     struct net_device_stats stats;
     struct sk_buff *skb;
+	struct workqueue_struct	*dev_workqueue;
+	struct si4463 * spi_priv;
+
+	struct mutex pib_lock;
     spinlock_t lock;
 };
 

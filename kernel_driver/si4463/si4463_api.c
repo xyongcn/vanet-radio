@@ -40,7 +40,7 @@ bool get_CCA(void){
 	u8 tmp[10];
 	get_modem_status(tmp);
 	if(tmp[3] > 0xa0) {
-		printk(KERN_ALERT "rssi: %d\n", tmp[3]);
+//		printk(KERN_ALERT "rssi: %d\n", tmp[3]);
 		return 1;
 	} else {
 		return 0;
