@@ -18,41 +18,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-#include <linux/device.h>
-#include <linux/spi/spi.h>
-#include <linux/interrupt.h>
-#include <linux/module.h>
-#include <linux/pinctrl/consumer.h>
-//#include <net/wpan-phy.h>
-//#include <net/mac802154.h>
-//#include <net/ieee802154.h>
-#include <linux/gpio.h>
-#include <linux/lnw_gpio.h>
-#include <linux/irq.h>
 
-#include <linux/delay.h>
-#include <linux/kernel.h> /* printk() */
-#include <linux/types.h>  /* size_t */
-#include <linux/interrupt.h> /* mark_bh */
-
-#include <linux/in.h>
-#include <linux/netdevice.h>   /* struct device, and other headers */
-#include <linux/etherdevice.h> /* eth_type_trans */
-#include <linux/ip.h>          /* struct iphdr */
-#include <linux/tcp.h>         /* struct tcphdr */
-#include <linux/skbuff.h>
-
-#include <linux/in6.h>
-#include <asm/checksum.h>
-
-//#include <linux/wait.h>
-#include <linux/kthread.h>
-
-#include <linux/fs.h>
-
-#include <linux/semaphore.h> /* semphone for the TX */
-#include <linux/mutex.h>
-#include <linux/timer.h>
 
 #include "radio.h"
 #include "si4463/si4463_api.h"
@@ -77,14 +43,16 @@
 				| SPI_LSB_FIRST | SPI_3WIRE | SPI_LOOP \
 				| SPI_NO_CS | SPI_READY)
 
-
+static unsigned int global_device_id = -1;
+module_param(global_device_id, uint, S_IRUGO);
+MODULE_PARM_DESC(global_device_id, "device_id");
 /************************ GLOBAL *******************************/
 /* for time slots */
-struct u8 global_myid;
-struct mutex mutex_slots[SLOTS_NUM];
+struct mutex global_mutex_slots[SLOTS_NUM];
 struct slot global_slots_table[SLOTS_NUM];
 static int global_slots_count = -1;
 static enum status global_device_status = REQUEST_BCH;
+
 /******************/
 struct {
 	u8* data;
@@ -486,6 +454,7 @@ struct si4463 {
 	 */
 	struct mutex *mutex_myslot;
 	int mybch_number;
+	u8 device_id;
 
 	bool irq_busy;
 	spinlock_t lock;
@@ -748,26 +717,25 @@ void si4463_rx_irqsafe(struct net_device *dev)
 				/* listen */
 
 				/* bch ==> priv->spi_priv->mybch_number */
-				break;
-			case WORKING:
-				/* step 1: find my bch, if none, error handler.
-				 * tmprx[1] ==> tmprx[slots_number]
-				 * */
-				for (i=1, mybch_relatednum=-1; i<=SLOTS_NUM; i++) {
-					if(global_myid == GET_ID(tmprx[i])){
-						mybch_relatednum = i-1;
-						break;
-					}
-				}
-				if(mybch_relatednum == -1){
-					/* error handler */
-				}
+//				break;
 
-				/* step 2: update slots table */
-				global_slots_table[priv->spi_priv->mybch_number];
+			case WORKING:
+//				/* step 1: find my bch, if none, error handler.
+//				 * tmprx[1] ==> tmprx[slots_number]
+//				 * */
+//				for (i=1, mybch_relatednum=-1; i<=SLOTS_NUM; i++) {
+//					if(global_myid == GET_ID(tmprx[i])){
+//						mybch_relatednum = i-1;
+//						break;
+//					}
+//				}
+//				if(mybch_relatednum == -1){
+//					/* error handler */
+//				}
+//
+//				/* step 2: update slots table */
 				update_slot_table(tmprx+1, global_slots_table,
-						priv->spi_priv->mybch_number,
-						mybch_relatednum,
+						global_slots_count,
 						GET_ID(tmprx[0]));
 			}
 
@@ -775,6 +743,7 @@ void si4463_rx_irqsafe(struct net_device *dev)
 		case BCH_REQ:
 			/* step 1: finding the slot on which we have received the packet. */
 			switch(global_device_status) {
+			case REQUEST_BCH:
 			case WORKING:
 				if(global_slots_table[global_slots_count].slot_status == available){
 					global_slots_table[global_slots_count].owner_id = GET_ID(tmprx[0]);
@@ -784,8 +753,7 @@ void si4463_rx_irqsafe(struct net_device *dev)
 				}
 
 				break;
-			case REQUEST_BCH:
-				/* do nothing */
+
 			case default:
 				break;
 			}
@@ -920,9 +888,9 @@ out_normal:
 static irqreturn_t slot_isr(int irq, void *data)
 {
 //	printk(KERN_ALERT "=====IRQ=====\n");
-	struct si4463 *devrec = data;
+//	struct si4463 *devrec = data;
 
-	gpio_set_value(13, 0);
+//	gpio_set_value(13, 0);
 
 	schedule_work(&devrec->slotirqwork);
 
@@ -931,15 +899,37 @@ static irqreturn_t slot_isr(int irq, void *data)
 
 static void slot_isrwork(struct work_struct *work)
 {
-	u8 loop = 0;
+	struct si4463 *devrec;
+	devrec = container_of(work, struct si4463, slotirqwork);
 //	if( global_slots_count == (DEVICES_NUM - 1))
 
 	/* initial with -1 */
 	global_slots_count = (global_slots_count + 1) % SLOTS_NUM;
-	if(mutex_is_locked(&mutex_slots[global_slots_count])) {
-		mutex_unlock(&mutex_slots[global_slots_count]);
+	if(mutex_is_locked(&global_mutex_slots[global_slots_count])) {
+		mutex_unlock(&global_mutex_slots[global_slots_count]);
 	}
-	gpio_set_value(13, 1);
+
+	if (global_slots_count == devrec->mybch_number) {
+		switch(global_device_status){
+		/* This surely be the second round! */
+		case WAITING_BCH:
+			/* todo: check slot_table to see if we have the BCH */
+			if(isEmpty(global_slots_table)) {
+				/* there has no neighbor! */
+				global_device_status = WORKING;
+			} else if(global_slots_table[devrec->mybch_number].owner_id == devrec->device_id) {
+				global_device_status = WORKING;
+			} else {
+				printk(KERN_ALERT "slot_isrwork: GET BCH ERROR!\n");
+			}
+			break;
+		case WORKING:
+			/* todo: send FI packet */
+			/* todo: request extra slots */
+
+		}
+	}
+//	gpio_set_value(13, 1);
 //	printk(KERN_ALERT "=====IRQ=====\n");
 }
 
@@ -1072,52 +1062,25 @@ out:
 
 static int si4463_start(struct net_device *dev)
 {
-	u8 val;
-	int ret, irq, slot_irq;
-	int saved_muxing = 0;
-	int err,tmp;
 
 
-	reset();
-	clr_interrupt();
-
-	/* IRQ */
-	irq = gpio_to_irq(NIRQ);
-	irq_set_irq_type(irq, IRQ_TYPE_EDGE_FALLING);
-    ret = request_irq(irq, si4463_isr, IRQF_TRIGGER_FALLING,
-//    		dev->name, dev);
-    		dev->name, global_devrec);
-	if (ret) {
-//		dev_err(printdev(global_devrec), "Unable to get IRQ");
-		printk("IRQ REQUEST ERROR!\n");
-	}
-	global_devrec->spi->irq = irq;
-
-	/* TIME SLOTS */
-//	slots_manager_tsk = kthread_run(irq_handler, NULL, "slots manager");
-//	if (IS_ERR(slots_manager_tsk)) {
-//		printk(KERN_ALERT "create kthread slots_manager_tsk failed!\n");
-//	} else {
-//		printk("create ktrhead irq_handler ok!\n");
-//	}
-
-	slot_irq = gpio_to_irq(SLOTIRQ);
-	irq_set_irq_type(slot_irq, IRQ_TYPE_EDGE_RISING);
-    ret = request_irq(slot_irq, slot_isr, IRQF_TRIGGER_RISING,
-//    		dev->name, dev);
-    		dev->name, global_devrec);
-	if (ret) {
-//		dev_err(printdev(global_devrec), "Unable to get IRQ");
-		printk("slot_irq REQUEST ERROR!\n");
-	}
-
+	int tmp_bch;
 	/* GET MY SLOT! */
-	global_devrec->mutex_myslot = &mutex_slots[0];//test.
+//	global_devrec->mutex_myslot = &mutex_slots[0];//test.
 //	request_BCH();
 
+	/* previously done in probe: listening for fi */
+	/* step 1: find first available in slot table */
+	tmp_bch = get_first_available_slot(global_slots_table);
+	/* step 2: send bch request */
+	send_bch_request(global_devrec, &global_mutex_slots[tmp_bch]);
+	global_device_status = WAITING_BCH;
+	global_devrec->mybch_number = tmp_bch;
+	mutex_lock(&global_slots_table[global_devrec->mybch_number].lock);
+	global_slots_table[global_devrec->mybch_number].slot_status = myslot;
+	global_slots_table[global_devrec->mybch_number].owner_id = global_devrec->device_id;
+	mutex_unlock(&global_slots_table[global_devrec->mybch_number].lock);
 
-	rx_start();
-	printk(KERN_ALERT "rx_start\n");
 	netif_start_queue(dev);
 	printk(KERN_ALERT "si4463_start\n");
 
@@ -1143,6 +1106,7 @@ static int si4463_probe(struct spi_device *spi)
 	u8 val;
 	int err;
 	int i;
+	int irq, slot_irq;
 	struct si4463 *devrec;
 
 	struct pinctrl *pinctrl;
@@ -1224,7 +1188,7 @@ static int si4463_probe(struct spi_device *spi)
 	spin_lock_init(&devrec->lock);
 
 	for(i=0; i<=DEVICES_NUM; i++) {
-		mutex_init(&mutex_slots[i]);
+		mutex_init(&global_mutex_slots[i]);
 	}
 
 	init_completion(&devrec->tx_complete);
@@ -1232,25 +1196,8 @@ static int si4463_probe(struct spi_device *spi)
 	INIT_WORK(&devrec->slotirqwork, slot_isrwork);
 	devrec->spi = spi;
 	spi_set_drvdata(spi, devrec);
-
-//	/* Register with the 802154 subsystem */
-//	devrec->dev = ieee802154_alloc_device(0, &si4463_ops);
-//	if (!devrec->dev)
-//		goto err_alloc_dev;
-//	devrec->dev->priv = devrec;
-
-
-
-//	devrec->dev->parent = &devrec->spi->dev;
-//	devrec->dev->phy->channels_supported[0] = 915;
-//	devrec->dev->flags = IEEE802154_HW_OMIT_CKSUM;//|IEEE802154_HW_AACK;
-
-//	ret = ieee802154_register_device(devrec->dev);
-//	if (ret)
-//		goto err_register_device;
-
-
-
+	devrec->device_id = (u8)global_device_id & 0xff;
+	devrec->mybch_number = -1;
 
 	memset(padding, 0, MAX_FIFO_SIZE);
 
@@ -1262,6 +1209,42 @@ static int si4463_probe(struct spi_device *spi)
 
 	/* Waiting Queue */
 	init_waitqueue_head(&wait_withdraw);
+
+	/* IRQ */
+	irq = gpio_to_irq(NIRQ);
+	irq_set_irq_type(irq, IRQ_TYPE_EDGE_FALLING);
+    ret = request_irq(irq, si4463_isr, IRQF_TRIGGER_FALLING,
+//    		dev->name, dev);
+    		"si4463", global_devrec);
+	if (ret) {
+//		dev_err(printdev(global_devrec), "Unable to get IRQ");
+		printk("IRQ REQUEST ERROR!\n");
+	}
+	devrec->spi->irq = irq;
+
+	/* TIME SLOTS */
+//	slots_manager_tsk = kthread_run(irq_handler, NULL, "slots manager");
+//	if (IS_ERR(slots_manager_tsk)) {
+//		printk(KERN_ALERT "create kthread slots_manager_tsk failed!\n");
+//	} else {
+//		printk("create ktrhead irq_handler ok!\n");
+//	}
+
+	slot_irq = gpio_to_irq(SLOTIRQ);
+	irq_set_irq_type(slot_irq, IRQ_TYPE_EDGE_RISING);
+    ret = request_irq(slot_irq, slot_isr, IRQF_TRIGGER_RISING,
+//    		dev->name, dev);
+    		"si4463", global_devrec);
+	if (ret) {
+//		dev_err(printdev(global_devrec), "Unable to get IRQ");
+		printk("slot_irq REQUEST ERROR!\n");
+	}
+
+	reset();
+	clr_interrupt();
+
+	rx_start();
+	printk(KERN_ALERT "rx_start\n");
 
 	return 0;
 

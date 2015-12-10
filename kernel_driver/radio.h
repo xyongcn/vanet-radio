@@ -1,4 +1,39 @@
-/* this is the header of the ed_device*/
+#include <linux/device.h>
+#include <linux/spi/spi.h>
+#include <linux/interrupt.h>
+#include <linux/module.h>
+#include <linux/pinctrl/consumer.h>
+//#include <net/wpan-phy.h>
+//#include <net/mac802154.h>
+//#include <net/ieee802154.h>
+#include <linux/gpio.h>
+#include <linux/lnw_gpio.h>
+#include <linux/irq.h>
+
+#include <linux/delay.h>
+#include <linux/kernel.h> /* printk() */
+#include <linux/types.h>  /* size_t */
+#include <linux/interrupt.h> /* mark_bh */
+
+#include <linux/in.h>
+#include <linux/netdevice.h>   /* struct device, and other headers */
+#include <linux/etherdevice.h> /* eth_type_trans */
+#include <linux/ip.h>          /* struct iphdr */
+#include <linux/tcp.h>         /* struct tcphdr */
+#include <linux/skbuff.h>
+
+#include <linux/in6.h>
+#include <asm/checksum.h>
+
+//#include <linux/wait.h>
+#include <linux/kthread.h>
+
+#include <linux/fs.h>
+
+#include <linux/semaphore.h> /* semphone for the TX */
+#include <linux/mutex.h>
+#include <linux/timer.h>
+
 
 #ifndef _ED_DEVICE_H
 #define _ED_DEVICE_H

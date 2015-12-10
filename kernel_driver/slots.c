@@ -8,6 +8,7 @@
 //}
 
 void updata_slot_info(struct slot *slot, u8 fi_data, u8 idfromslot){
+	mutex_lock(&slot->lock);
 	switch(slot->slot_status){
 	case available:
 		switch(FI_GET_BUSY(fi_data)){
@@ -66,19 +67,6 @@ void updata_slot_info(struct slot *slot, u8 fi_data, u8 idfromslot){
 	case default:
 		printk(KERN_ALERT "updata_slot_info: error update\n");
 	}
+	mutex_unlock(&slot->lock);
 }
 
-void update_slot_table(u8* fi_data,
-		struct slot *slot_table,
-		int mybch_number,
-		int mybch_relatednum
-		int idfromslot)
-{
-	int i, j;
-
-	for(i=0; i<SLOTS_NUM; i++){
-		j = (i - (mybch_relatednum - mybch_number) + SLOTS_NUM) % SLOTS_NUM;
-		updata_slot_info(slot_table[j], fi_data[i], idfromslot);
-
-	}
-}
