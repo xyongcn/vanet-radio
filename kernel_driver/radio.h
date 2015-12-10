@@ -98,7 +98,10 @@ int set_pinmux(void);
 #define NIRQ 			182 //IO6  //interrpt
 /* SI4463 GPIO*/
 #define GPIO0			183 //IO9
-#define GPIO1			13 //IO5
+//#define GPIO1			13 //IO5
+
+/* TEST SLOT */
+#define SLOTIRQ			183
 /* RF212 SLP */
 #define SLP_TR_PIN 		183 //IO9
 
