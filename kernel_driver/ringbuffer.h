@@ -8,8 +8,8 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 
-#define RBUF_MAX 100
-#define MAXSIZE_PER_CMD 3000
+#define RBUF_MAX 50
+#define MAXSIZE_PER_CMD 300
 
 
 /* === TEMPPPPP~ ==============================================================*/

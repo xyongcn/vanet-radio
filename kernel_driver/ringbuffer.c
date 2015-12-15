@@ -116,7 +116,7 @@ int rbuf_insert_readcmd(rbuf_t *rb)
 	spin_lock(&rb->lock);
 //	mutex_lock(&mutex_rbuf);
 	if(rb->next_out == 0)
-		rb->next_out == rb->capacity - 1;
+		rb->next_out = rb->capacity - 1;
 	else
 		rb->next_out = (rb->next_out - 1) % rb->capacity;
 //	copy_cmd(&(rb->data[rb->next_out]), cmd_);

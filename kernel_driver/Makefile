@@ -4,8 +4,8 @@
 #obj-m := si4463_802154.o
 #si4463_802154-objs := 802154_si4463.o si4463/si4463_api.o 
 
-obj-m := si4463_normal.o
-si4463_normal-objs := normal_si4463.o si4463/si4463_api.o 
+obj-m := si4463_tdma.o
+si4463_tdma-objs := normal_si4463.o si4463/si4463_api.o  slots.o ringbuffer.o
 
 KDIR :=/home/wu/Desktop/edison/kernel/linux-edison-standard-build
 

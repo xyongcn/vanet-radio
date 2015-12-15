@@ -7,7 +7,7 @@
 #define MAX_PACKET_LENGTH 250
 #define TX_THRESHOLD 0x23
 #define RX_THRESHOLD 0x30
-#define MAX_FIFO_SIZE 128
+#define MAX_FIFO_SIZE 127
 
 /*
  * FUNCTIONS
@@ -34,7 +34,7 @@ void setFrequency(unsigned long freq); //Not in used
 //void si4463_register_init(void);
 void setRFParameters(void);
 
-void Function_set_tran_property();
+void Function_set_tran_property(void);
 
 void clr_interrupt(void);
 void clr_packet_sent_pend(void);
@@ -48,6 +48,7 @@ void enable_chip_irq(void);
 //void enable_tx_interrupt(void);		// 使能发射中断
 //void enable_rx_interrupt(void);		// 使能接收中断
 void tx_start(void);
+void tx_start2txtune(void);
 void rx_start(void);					// 开始接收
 void tx_start_1B(void);
 void tx_set_packet_len(u8 packetlen);

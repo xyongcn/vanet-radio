@@ -23,6 +23,7 @@
 #include "radio.h"
 #include "si4463/si4463_api.h"
 #include "slots.h"
+#include "ringbuffer.h"
 
 //for mac_cb debug
 //#include <net/ieee802154_netdev.h>
@@ -43,17 +44,32 @@
 				| SPI_LSB_FIRST | SPI_3WIRE | SPI_LOOP \
 				| SPI_NO_CS | SPI_READY)
 
-static unsigned int global_device_id = -1;
+unsigned int global_device_id = -1;
 module_param(global_device_id, uint, S_IRUGO);
 MODULE_PARM_DESC(global_device_id, "device_id");
 /************************ GLOBAL *******************************/
 /* for time slots */
-struct mutex global_mutex_slots[SLOTS_NUM];
-struct slot global_slots_table[SLOTS_NUM];
-static int global_slots_count = -1;
-static enum status global_device_status = REQUEST_BCH;
+//struct mutex global_mutex_slots[SLOTS_NUM];
+struct slot global_slots_table[MAX_SLOTS_NUM];
+volatile int global_slots_count = -1;
+volatile enum device_status global_device_status = -1;
+unsigned int global_slots_perframe;
+unsigned int global_slot_size_ms;
+unsigned int global_device_num;
+//volatile unsigned long global_slot_start_jiffies;
 
-/******************/
+rbuf_t global_tx_ringbuffer;
+
+module_param(global_slots_perframe, uint, S_IRUGO);
+MODULE_PARM_DESC(global_slots_perframe, "global_slots_perframe");
+
+module_param(global_slot_size_ms, uint, S_IRUGO);
+MODULE_PARM_DESC(global_slot_size_ms, "global_slot_size_ms");
+
+module_param(global_device_num, uint, S_IRUGO);
+MODULE_PARM_DESC(global_device_num, "global_device_num");
+
+/***************************************************************/
 struct {
 	u8* data;
 	u8 len;
@@ -84,9 +100,9 @@ static void withdraw(unsigned long data)
 #define pin_mux_num  31
 const struct gpio pin_mux[pin_mux_num] = {
 		/*{111, NULL, NULL},*/
-		{115, NULL, NULL},
-		{114, NULL, NULL},
-		{109, NULL, NULL},
+		{115, GPIOF_INIT_LOW, NULL},
+		{114, GPIOF_INIT_LOW, NULL},
+		{109, GPIOF_INIT_LOW, NULL},
 		{214, GPIOF_INIT_LOW, NULL},
 
 		{263, GPIOF_INIT_HIGH, NULL},
@@ -126,7 +142,7 @@ const struct gpio pin_mux[pin_mux_num] = {
 };
 
 static void write2file(struct file *fp, const char *write_str, int len) {
-    static char buf1[10];
+//    static char buf1[10];
     mm_segment_t fs;
     loff_t pos;
 
@@ -163,7 +179,7 @@ int set_pinmux(){
     const char s_in[] = "in";
     const char s_on[] = "on";
 
-    int i,ret;
+    int ret;
 
     ret = gpio_request_array(pin_mux, pin_mux_num);
     printk(KERN_ALERT "gpio_request_array return %d\n", ret);
@@ -435,30 +451,7 @@ void ppp(u8 * arr, int len){
 	printk(KERN_ALERT "\n");
 }
 
-/* Device Private Data */
-struct si4463 {
-	struct spi_device *spi;
-//	struct ieee802154_dev *dev;
-	struct net_device *dev;
-	struct mutex buffer_mutex; /* only used to protect buf */
-	struct completion tx_complete;
-	struct work_struct irqwork;
-	struct work_struct slotirqwork;
 
-	u8 *buf; /* 3 bytes. Used for SPI single-register transfers. */
-
-	struct mutex mutex_spi;
-
-	/**
-	 *  for tdma
-	 */
-	struct mutex *mutex_myslot;
-	int mybch_number;
-	u8 device_id;
-
-	bool irq_busy;
-	spinlock_t lock;
-};
 
 #define printdev(X) (&X->spi->dev)
 
@@ -472,135 +465,136 @@ struct xmit_work {
 //	u8 page;
 };
 
-static int si4463_tx_worker(struct work_struct *work)
-{
-
-	struct sk_buff *skb;
-	struct xmit_work *xw = container_of(work, struct xmit_work, work);
-	struct si4463 *devrec;
-	devrec = xw->priv->spi_priv;
-	skb = xw->skb;
-
-	mutex_lock(&xw->priv->pib_lock);
-	u8 val;
-	int ret = 0;
-	int i, rssi;
-
-//	dev_dbg(printdev(devrec), "tx packet of %d bytes\n", skb->len);
-
-//again:
-//	for (i = 0; i < 5; i++)
-//	{
-//		rssi = get_CCA();
-//		if (rssi) {
-////			ndelay(1000);
-//			tx_approved = 0;
-//			add_timer(&tx_withdraw_timer);
-//			wait_event_interruptible(wait_withdraw, tx_approved);
-//			goto again;
+//
+//static int si4463_tx_worker(struct work_struct *work)
+//{
+//
+//	struct sk_buff *skb;
+//	struct xmit_work *xw = container_of(work, struct xmit_work, work);
+//	struct si4463 *devrec;
+//	devrec = xw->priv->spi_priv;
+//	skb = xw->skb;
+//
+//	mutex_lock(&xw->priv->pib_lock);
+//	u8 val;
+//	int ret = 0;
+//	int i, rssi;
+//
+////	dev_dbg(printdev(devrec), "tx packet of %d bytes\n", skb->len);
+//
+////again:
+////	for (i = 0; i < 5; i++)
+////	{
+////		rssi = get_CCA();
+////		if (rssi) {
+//////			ndelay(1000);
+////			tx_approved = 0;
+////			add_timer(&tx_withdraw_timer);
+////			wait_event_interruptible(wait_withdraw, tx_approved);
+////			goto again;
+////		}
+////		ndelay(95);
+////	}
+//again_irqbusy:
+//	spin_lock(&devrec->lock);
+//	if  (devrec->irq_busy) {
+//		printk(KERN_ALERT "TX: irq_busy!\n");
+//		spin_unlock(&devrec->lock);
+////		return -EBUSY;
+//		tx_approved = 0;
+//		add_timer(&tx_withdraw_timer);
+//		wait_event_interruptible(wait_withdraw, tx_approved);
+//		goto again_irqbusy;
+//	}
+//	spin_unlock(&devrec->lock);
+////	printk(KERN_ALERT "tx: %d\n", skb->len);
+//
+//	if(skb->len > MAX_FIFO_SIZE)
+//		printk(KERN_ALERT "tx > MAX_FIFO_SIZE!!!! %d\n", skb->len);
+//
+//	/* time slot */
+////	mutex_lock(devrec->mutex_myslot);
+//
+//	change_state2tx_tune();
+//	while(gpio_get_value(NIRQ) <=0 ) {
+//		printk(KERN_ALERT "Before tx, NIRQ PIN: %d\n", gpio_get_value(NIRQ));
+//		spin_lock(&devrec->lock);
+//		if  (devrec->irq_busy) {
+//			printk(KERN_ALERT "TX222: irq_busy!\n");
+//			rx_start();
 //		}
-//		ndelay(95);
+//		spin_unlock(&devrec->lock);
+//		clr_interrupt();
 //	}
-again_irqbusy:
-	spin_lock(&devrec->lock);
-	if  (devrec->irq_busy) {
-		printk(KERN_ALERT "TX: irq_busy!\n");
-		spin_unlock(&devrec->lock);
-//		return -EBUSY;
-		tx_approved = 0;
-		add_timer(&tx_withdraw_timer);
-		wait_event_interruptible(wait_withdraw, tx_approved);
-		goto again_irqbusy;
-	}
-	spin_unlock(&devrec->lock);
-//	printk(KERN_ALERT "tx: %d\n", skb->len);
-
-	if(skb->len > MAX_FIFO_SIZE)
-		printk(KERN_ALERT "tx > MAX_FIFO_SIZE!!!! %d\n", skb->len);
-
-	/* time slot */
-	mutex_lock(devrec->mutex_myslot);
-
-	change_state2tx_tune();
-	while(gpio_get_value(NIRQ) <=0 ) {
-		printk(KERN_ALERT "Before tx, NIRQ PIN: %d\n", gpio_get_value(NIRQ));
-		spin_lock(&devrec->lock);
-		if  (devrec->irq_busy) {
-			printk(KERN_ALERT "TX222: irq_busy!\n");
-			rx_start();
-		}
-		spin_unlock(&devrec->lock);
-		clr_interrupt();
-	}
-
-	data_sending.len = skb->len;
-	data_sending.data = skb->data;
-
-	INIT_COMPLETION(devrec->tx_complete);
-
-//	printk(KERN_ALERT "Len: %d\n", data_sending.len);
-	fifo_reset();
-
-
-	data_sending.len = data_sending.len > MAX_FIFO_SIZE ? MAX_FIFO_SIZE : data_sending.len;
-	d[0] = data_sending.len;
-	/* for tdma */
-	d[1] = 0x00;
-//	tx_set_packet_len(data_sending.len + 1);
-	tx_set_packet_len(data_sending.len + 2);
-	spi_write_fifo(d, 2);
-	spi_write_fifo(data_sending.data, data_sending.len);	//tmp_len);
-//	if ((data_sending.len + 1) < MAX_FIFO_SIZE) {
-//		spi_write_fifo(padding, MAX_FIFO_SIZE - data_sending.len - 1);
+//
+//	data_sending.len = skb->len;
+//	data_sending.data = skb->data;
+//
+//	INIT_COMPLETION(devrec->tx_complete);
+//
+////	printk(KERN_ALERT "Len: %d\n", data_sending.len);
+//	fifo_reset();
+//
+//
+//	data_sending.len = data_sending.len > MAX_FIFO_SIZE ? MAX_FIFO_SIZE : data_sending.len;
+//	d[0] = data_sending.len;
+//	/* for tdma */
+//	d[1] = 0x00;
+////	tx_set_packet_len(data_sending.len + 1);
+//	tx_set_packet_len(data_sending.len + 2);
+//	spi_write_fifo(d, 2);
+//	spi_write_fifo(data_sending.data, data_sending.len);	//tmp_len);
+////	if ((data_sending.len + 1) < MAX_FIFO_SIZE) {
+////		spi_write_fifo(padding, MAX_FIFO_SIZE - data_sending.len - 1);
+////	}
+//
+////	int fp = filp_open("/home/root/log", O_CREAT|O_APPEND|O_RDWR, S_IRWXU);
+////	int time_s = jiffies_to_msecs(jiffies);
+//
+//	tx_start();
+//	ret = wait_for_completion_interruptible_timeout(&devrec->tx_complete, 7 * HZ);
+////	int time_e = jiffies_to_msecs(jiffies);
+////	write2file(fp, time_s - time_e, sizeof(int));
+////	write2file(fp, "\n", 1);
+//////			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
+////			//semaphore
+//////			down(&sem_tx_complete);
+////			ret = down_timeout(&sem_tx_complete, 2*HZ);
+///* FREE THE SKB */
+////			dev_kfree_skb(skb);
+//
+////	get_interrupt_status(d);
+////	ppp(d, 9);
+////	get_fifo_info(d);
+////	ppp(d, 3);
+//out_normal:
+////			if(ret == 0)
+//	if (ret > 0)	//wait_for_completion_interruptible_timeout
+////		clr_packet_sent_pend();
+//		clr_interrupt();
+//	else
+//	{
+//		printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!SEND ERROR, RESETING!!!!!!!!!!!!!!!!!\n");
+//		printk(KERN_ALERT "NIRQ PIN: %d\n", gpio_get_value(NIRQ));
+//		reset();
 //	}
-
-//	int fp = filp_open("/home/root/log", O_CREAT|O_APPEND|O_RDWR, S_IRWXU);
-//	int time_s = jiffies_to_msecs(jiffies);
-
-	tx_start();
-	ret = wait_for_completion_interruptible_timeout(&devrec->tx_complete, 7 * HZ);
-//	int time_e = jiffies_to_msecs(jiffies);
-//	write2file(fp, time_s - time_e, sizeof(int));
-//	write2file(fp, "\n", 1);
-////			printk(KERN_ALERT "SEND_CMD:LEN: cmd_->len[%d]\n", tmp_len);
-//			//semaphore
-////			down(&sem_tx_complete);
-//			ret = down_timeout(&sem_tx_complete, 2*HZ);
-/* FREE THE SKB */
-//			dev_kfree_skb(skb);
-
-//	get_interrupt_status(d);
-//	ppp(d, 9);
-//	get_fifo_info(d);
-//	ppp(d, 3);
-out_normal:
-//			if(ret == 0)
-	if (ret > 0)	//wait_for_completion_interruptible_timeout
-//		clr_packet_sent_pend();
-		clr_interrupt();
-	else
-	{
-		printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!SEND ERROR, RESETING!!!!!!!!!!!!!!!!!\n");
-		printk(KERN_ALERT "NIRQ PIN: %d\n", gpio_get_value(NIRQ));
-		reset();
-	}
-	rx_start();
-//	u8 status = get_device_state();
-//	printk(KERN_ALERT "DEVICE STATUS AFTER TX: %x\n", status);
-
-	mutex_unlock(&xw->priv->pib_lock);
-	netif_wake_queue(global_net_devs);
-	dev_kfree_skb(skb);
-	kfree(xw);
-//	printk(KERN_ALERT "si4463_tx_worker out!\n");
-    return 0;
-}
+//	rx_start();
+////	u8 status = get_device_state();
+////	printk(KERN_ALERT "DEVICE STATUS AFTER TX: %x\n", status);
+//
+//	mutex_unlock(&xw->priv->pib_lock);
+//	netif_wake_queue(global_net_devs);
+//	dev_kfree_skb(skb);
+//	kfree(xw);
+////	printk(KERN_ALERT "si4463_tx_worker out!\n");
+//    return 0;
+//}
 
 
 static int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 {
-//	printk(KERN_ALERT "si4463_tx! dev:%x glo:%x\n", dev, global_net_devs);
-	struct xmit_work *work;
+/********************************************************
+ 	struct xmit_work *work;
 	struct module_priv *priv;
 	priv = netdev_priv(dev);
 
@@ -609,20 +603,26 @@ static int si4463_tx(struct sk_buff *skb, struct net_device *dev)
 		kfree_skb(skb);
 		return NETDEV_TX_BUSY;
 	}
-//	if (global_device_status != WORKING) {
-//		kfree_skb(skb);
-//		return NETDEV_TX_BUSY;
-//	}
-
 	netif_stop_queue(dev);
-//
-//
+
 	INIT_WORK(&work->work, si4463_tx_worker);
 	work->skb = skb;
 	work->priv = priv;
 	queue_work(priv->dev_workqueue, &work->work);
+	return NETDEV_TX_OK;
+********************************************************/
+	struct cmd cmd_;
+	if(rbuf_almost_full(&global_tx_ringbuffer)) {
+		netif_stop_queue(dev);
+	}
 
-//	printk(KERN_ALERT "si4463_tx out!\n");
+	cmd_.type = SEND_CMD;
+	cmd_.len = skb->len;
+	cmd_.data = skb->data;
+
+	rbuf_enqueue(&global_tx_ringbuffer, &cmd_);//must before the kfree
+
+	dev_kfree_skb(skb);
 	return NETDEV_TX_OK;
 }
 
@@ -653,10 +653,10 @@ void si4463_rx_irqsafe(struct net_device *dev)
 
 //	printk(KERN_ALERT "si4463_handle_rx in \n");
 	u8 len = 0;
-	u8 type;
-	u8 val;
-	int i;
-	int mybch_relatednum;
+//	u8 type;
+//	u8 val;
+//	int i;
+//	int mybch_relatednum;
 	int ret = 0;
 	struct sk_buff *skb;
 
@@ -684,7 +684,7 @@ void si4463_rx_irqsafe(struct net_device *dev)
 	    if (!skb) {
 	        printk(KERN_ALERT "si4463_rx can not allocate more memory to store the packet. drop the packet\n");
 	        priv->stats.rx_dropped++;
-	        return -1;
+	        return;
 	    }
 	    skb_reserve(skb, 2);
 		if (!skb) {
@@ -718,12 +718,13 @@ void si4463_rx_irqsafe(struct net_device *dev)
 
 				/* bch ==> priv->spi_priv->mybch_number */
 //				break;
+			case WAITING_BCH:
 
 			case WORKING:
 //				/* step 1: find my bch, if none, error handler.
 //				 * tmprx[1] ==> tmprx[slots_number]
 //				 * */
-//				for (i=1, mybch_relatednum=-1; i<=SLOTS_NUM; i++) {
+//				for (i=1, mybch_relatednum=-1; i<=global_slots_perframe; i++) {
 //					if(global_myid == GET_ID(tmprx[i])){
 //						mybch_relatednum = i-1;
 //						break;
@@ -734,9 +735,12 @@ void si4463_rx_irqsafe(struct net_device *dev)
 //				}
 //
 //				/* step 2: update slots table */
-				update_slot_table(tmprx+1, global_slots_table,
+				update_slot_table(tmprx+1,
+						global_slots_table, global_slots_perframe,
 						global_slots_count,
-						GET_ID(tmprx[0]));
+						GET_ID(tmprx[0]),
+						global_devrec->mybch_number);
+
 			}
 
 			break;
@@ -754,20 +758,20 @@ void si4463_rx_irqsafe(struct net_device *dev)
 
 				break;
 
-			case default:
+			default:
 				break;
 			}
 			break;
 		case EXTRA_SLOTS_REQ:
 
 			break;
-		case default:
+		default:
 			printk(KERN_ALERT "CONTROL TYPE ERROR!!\n");
 
 		}
 
 		break;
-	case default:
+	default:
 		printk(KERN_ALERT "TYPE ERROR!!\n");
 	}
 
@@ -843,52 +847,11 @@ int si4463_change_mtu(struct net_device *dev, int new_mtu)
 
     return 0;
 }
-/*
-static int sned_control_packet()
-{
 
-	struct si4463 *devrec;
-	devrec = global_devrec;
-
-	u8 val;
-	int ret = 0;
-	int i, rssi;
-
-	INIT_COMPLETION(devrec->tx_complete);
-
-	fifo_reset();
-
-
-	tx_set_packet_len(data_sending.len + 1);
-	spi_write_fifo(d, 1);
-	spi_write_fifo(data_sending.data, data_sending.len);	//tmp_len);
-
-	tx_start();
-	ret = wait_for_completion_interruptible_timeout(&devrec->tx_complete, 7 * HZ);
-
-out_normal:
-//			if(ret == 0)
-	if (ret > 0)	//wait_for_completion_interruptible_timeout
-//		clr_packet_sent_pend();
-		clr_interrupt();
-	else
-	{
-		printk(KERN_ALERT "!!!!!!!!!!!!!!!!!!!SEND ERROR, RESETING!!!!!!!!!!!!!!!!!\n");
-		printk(KERN_ALERT "NIRQ PIN: %d\n", gpio_get_value(NIRQ));
-		reset();
-	}
-	rx_start();
-
-	mutex_unlock(&xw->priv->pib_lock);
-	netif_wake_queue(global_net_devs);
-	dev_kfree_skb(skb);
-	kfree(xw);
-}
-*/
 static irqreturn_t slot_isr(int irq, void *data)
 {
 //	printk(KERN_ALERT "=====IRQ=====\n");
-//	struct si4463 *devrec = data;
+	struct si4463 *devrec = data;
 
 //	gpio_set_value(13, 0);
 
@@ -900,35 +863,100 @@ static irqreturn_t slot_isr(int irq, void *data)
 static void slot_isrwork(struct work_struct *work)
 {
 	struct si4463 *devrec;
+	unsigned long slot_start_jiffies;
 	devrec = container_of(work, struct si4463, slotirqwork);
-//	if( global_slots_count == (DEVICES_NUM - 1))
+//	if( global_slots_count == (global_device_num - 1))
 
 	/* initial with -1 */
-	global_slots_count = (global_slots_count + 1) % SLOTS_NUM;
-	if(mutex_is_locked(&global_mutex_slots[global_slots_count])) {
-		mutex_unlock(&global_mutex_slots[global_slots_count]);
-	}
+	global_slots_count = (global_slots_count + 1) % global_slots_perframe;
+//	if(mutex_is_locked(&global_mutex_slots[global_slots_count])) {
+//		mutex_unlock(&global_mutex_slots[global_slots_count]);
+//	}
+	slot_start_jiffies = jiffies;
+//	global_slot_start_jiffies = jiffies;
 
-	if (global_slots_count == devrec->mybch_number) {
-		switch(global_device_status){
-		/* This surely be the second round! */
-		case WAITING_BCH:
-			/* todo: check slot_table to see if we have the BCH */
+
+	switch(global_device_status){
+	case REQUEST_BCH:
+		/* GET MY SLOT! */
+
+		/* previously done in probe: listening for fi */
+		/* step 1: find first available in slot table */
+		devrec->bch_candidate = get_first_available_slot(global_slots_table, global_slots_perframe);
+		/* step 2: send bch request */
+		send_bch_request(devrec, devrec->bch_candidate);
+		global_device_status = WAITING_BCH;
+		devrec->mybch_number = devrec->bch_candidate;
+		mutex_lock(&global_slots_table[devrec->bch_candidate].lock);
+		global_slots_table[devrec->bch_candidate].slot_status = myslot;
+		global_slots_table[devrec->bch_candidate].owner_id = devrec->device_id;
+		mutex_unlock(&global_slots_table[devrec->bch_candidate].lock);
+
+		netif_start_queue(devrec->dev);
+		break;
+	case WAITING_BCH:
+		/* todo: check slot_table to see if we have the BCH */
+		if (global_slots_count == devrec->bch_candidate) {
+			/* This surely be the second round! */
 			if(isEmpty(global_slots_table)) {
 				/* there has no neighbor! */
 				global_device_status = WORKING;
+				devrec->mybch_number = devrec->bch_candidate;
 			} else if(global_slots_table[devrec->mybch_number].owner_id == devrec->device_id) {
 				global_device_status = WORKING;
+				devrec->mybch_number = devrec->bch_candidate;
 			} else {
 				printk(KERN_ALERT "slot_isrwork: GET BCH ERROR!\n");
+				devrec->mybch_number = -1;
+				global_device_status = REQUEST_BCH;
 			}
-			break;
-		case WORKING:
-			/* todo: send FI packet */
-			/* todo: request extra slots */
-
 		}
+		break;
+	case WORKING:
+		if (global_slots_count == devrec->mybch_number) {
+			/* todo: send FI packet */
+			send_fi(devrec, global_slots_perframe, global_slots_table);
+			/* todo: request extra slots */
+			/* todo: send data packet */
+			send_remaining_data_inslot(devrec, &global_tx_ringbuffer,
+					slot_start_jiffies,
+					global_slot_size_ms);
+		}
+//		else if(isMyExtraSlot(global_slots_count)) {
+//			/* todo: send data packet */
+//			send_remaining_data_inslot(devrec, &global_tx_ringbuffer,
+//					slot_start_jiffies,
+//					global_slot_size_ms);
+//		}
+
+		break;
+	default:
+		break;
 	}
+
+
+
+//	if (global_slots_count == devrec->mybch_number) {
+//		switch(global_device_status){
+//		/* This surely be the second round! */
+//		case WAITING_BCH:
+//			/* todo: check slot_table to see if we have the BCH */
+//			if(isEmpty(global_slots_table)) {
+//				/* there has no neighbor! */
+//				global_device_status = WORKING;
+//			} else if(global_slots_table[devrec->mybch_number].owner_id == devrec->device_id) {
+//				global_device_status = WORKING;
+//			} else {
+//				printk(KERN_ALERT "slot_isrwork: GET BCH ERROR!\n");
+//			}
+//			break;
+//		case WORKING:
+//			/* todo: send FI packet */
+//			/* todo: request extra slots */
+//			/* todo: send data packet */
+//
+//		}
+//	}
 //	gpio_set_value(13, 1);
 //	printk(KERN_ALERT "=====IRQ=====\n");
 }
@@ -953,20 +981,16 @@ static void si4463_isrwork(struct work_struct *work)
 {
 
 	struct si4463 *devrec = container_of(work, struct si4463, irqwork);
-	u8 intstat;
-	int ret;
-	int preamble_detect;
-	bool tx_complete_flag;
-	bool rx_flag;
-	bool tx_fifo_almost_empty_flag;
+//	u8 intstat;
+//	int ret;
+	int preamble_detect = 0;
+	bool tx_complete_flag = 0;
+	bool rx_flag = 0;
+	bool tx_fifo_almost_empty_flag = 0;
 	u8 ph_pend;
-	u8 md_status;
-
-	preamble_detect = 0;
-	tx_complete_flag = 0;
-	tx_fifo_almost_empty_flag = 0;
-	rx_flag = 0;
+	u8 rx[10];
 	unsigned long flags;
+
 	/*
 	 * read FRR_A for PH_STATUS_PEND (or status????)
 	 * 1, tx complete
@@ -1041,11 +1065,10 @@ static void si4463_isrwork(struct work_struct *work)
 //	}
 //		write_int_with_lock(&isHandlingIrq, 0);
 
-error:
+//error:
 	//Clear IRQ, rx process will clear irq.
 	if(!rx_flag && !tx_complete_flag && !preamble_detect && !tx_fifo_almost_empty_flag){
 		printk(KERN_ALERT "ERROR PH_PEND: %x\n", ph_pend);
-		u8* rx[10];
 		get_ph_status(rx);
 		ppp(rx, 3);
 		get_interrupt_status(rx);
@@ -1064,24 +1087,8 @@ static int si4463_start(struct net_device *dev)
 {
 
 
-	int tmp_bch;
-	/* GET MY SLOT! */
-//	global_devrec->mutex_myslot = &mutex_slots[0];//test.
-//	request_BCH();
+	global_device_status = REQUEST_BCH;
 
-	/* previously done in probe: listening for fi */
-	/* step 1: find first available in slot table */
-	tmp_bch = get_first_available_slot(global_slots_table);
-	/* step 2: send bch request */
-	send_bch_request(global_devrec, &global_mutex_slots[tmp_bch]);
-	global_device_status = WAITING_BCH;
-	global_devrec->mybch_number = tmp_bch;
-	mutex_lock(&global_slots_table[global_devrec->mybch_number].lock);
-	global_slots_table[global_devrec->mybch_number].slot_status = myslot;
-	global_slots_table[global_devrec->mybch_number].owner_id = global_devrec->device_id;
-	mutex_unlock(&global_slots_table[global_devrec->mybch_number].lock);
-
-	netif_start_queue(dev);
 	printk(KERN_ALERT "si4463_start\n");
 
 	return 0;
@@ -1101,15 +1108,14 @@ static const struct net_device_ops si4463_netdev_ops = {
 static int si4463_probe(struct spi_device *spi)
 {
 	int tmp;
-	int irq;
 	int ret = -ENOMEM;
-	u8 val;
+//	u8 val;
 	int err;
-	int i;
+//	int i;
 	int irq, slot_irq;
 	struct si4463 *devrec;
 
-	struct pinctrl *pinctrl;
+//	struct pinctrl *pinctrl;
 	printk(KERN_ALERT "si4463: probe(). IRQ: %d\n", spi->irq);
 
 	devrec = kzalloc(sizeof(struct si4463), GFP_KERNEL);
@@ -1179,17 +1185,13 @@ static int si4463_probe(struct spi_device *spi)
 	ret = spi_setup(spi);
 	if (ret < 0)
 		printk(KERN_ALERT "ERROR! spi_setup return: %d\n", ret);
-	else
-		printk(KERN_ALERT "spi_setup succeed, spi:%x, spidev_global.spi:%x\n", spi, spidev_global.spi);
+//	else
+//		printk(KERN_ALERT "spi_setup succeed, spi:%x, spidev_global.spi:%x\n", spi, spidev_global.spi);
 
 
 	mutex_init(&devrec->buffer_mutex);
 	mutex_init(&devrec->mutex_spi);
 	spin_lock_init(&devrec->lock);
-
-	for(i=0; i<=DEVICES_NUM; i++) {
-		mutex_init(&global_mutex_slots[i]);
-	}
 
 	init_completion(&devrec->tx_complete);
 	INIT_WORK(&devrec->irqwork, si4463_isrwork);
@@ -1240,6 +1242,12 @@ static int si4463_probe(struct spi_device *spi)
 		printk("slot_irq REQUEST ERROR!\n");
 	}
 
+	/* TX ringbuffer */
+	rbuf_init(&global_tx_ringbuffer);
+
+	/* Slot table init */
+	init_slot_table(global_slots_table);
+
 	reset();
 	clr_interrupt();
 
@@ -1248,13 +1256,13 @@ static int si4463_probe(struct spi_device *spi)
 
 	return 0;
 
-err_irq:
-err_read_reg:
-//	ieee802154_unregister_device(devrec->dev);
-err_register_device:
-//	ieee802154_free_device(devrec->dev);
-err_alloc_dev:
-	kfree(devrec->buf);
+//err_irq:
+//err_read_reg:
+////	ieee802154_unregister_device(devrec->dev);
+//err_register_device:
+////	ieee802154_free_device(devrec->dev);
+//err_alloc_dev:
+//	kfree(devrec->buf);
 err_buf:
 	kfree(devrec);
 err_devrec:
@@ -1329,7 +1337,7 @@ static struct spi_driver spidev_spi_driver = {
 
 void module_net_init(struct net_device *dev)
 {
-	printk(KERN_ALERT "module_net_init!\n");
+//	printk(KERN_ALERT "module_net_init!\n");
 	struct module_priv *priv;
 	ether_setup(dev); /* assign some of the fields */
 //	si4463_net_dev_setup(dev);
@@ -1362,7 +1370,7 @@ void module_net_init(struct net_device *dev)
 	global_devrec->dev = global_net_devs;
 	priv->dev_workqueue = create_singlethread_workqueue("tx_queue");
 	mutex_init(&priv->pib_lock);
-	printk(KERN_ALERT "module_net_init! dev:%x glo:%x\n", dev, global_net_devs);
+//	printk(KERN_ALERT "module_net_init! dev:%x glo:%x\n", dev, global_net_devs);
 
 	spin_lock_init(&priv->lock);
 }
@@ -1388,7 +1396,7 @@ static int __init si4463_init(void)
 	else
 		ret = 0;
 
-	printk(KERN_ALERT "AFTER register_netdev, global_net_devs:%x\n", global_net_devs);
+//	printk(KERN_ALERT "AFTER register_netdev, global_net_devs:%x\n", global_net_devs);
 	/* init sem_irq , locked */
 //	sema_init(&sem_irq, 0);
 //	sema_init(&sem_tx_complete, 0);

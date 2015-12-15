@@ -33,7 +33,7 @@
 #include <linux/semaphore.h> /* semphone for the TX */
 #include <linux/mutex.h>
 #include <linux/timer.h>
-
+#include <linux/jiffies.h>
 
 #ifndef _ED_DEVICE_H
 #define _ED_DEVICE_H
@@ -57,6 +57,32 @@
 #define BITS_PER_WORD 8
 
 //#define DEBUG
+
+/* Device Private Data */
+struct si4463 {
+	struct spi_device *spi;
+//	struct ieee802154_dev *dev;
+	struct net_device *dev;
+	struct mutex buffer_mutex; /* only used to protect buf */
+	struct completion tx_complete;
+	struct work_struct irqwork;
+	struct work_struct slotirqwork;
+
+	u8 *buf; /* 3 bytes. Used for SPI single-register transfers. */
+
+	struct mutex mutex_spi;
+
+	/**
+	 *  for tdma
+	 */
+//	struct mutex *mutex_myslot;
+	int mybch_number;
+	int bch_candidate;
+	u8 device_id;
+
+	bool irq_busy;
+	spinlock_t lock;
+};
 
 struct spidev_data {
 	dev_t			devt;
