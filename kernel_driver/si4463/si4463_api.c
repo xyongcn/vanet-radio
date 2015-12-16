@@ -791,7 +791,6 @@ void tx_set_packet_len(u8 packetlen)
 void rx_start(void)					// 开始接收
 {
 	unsigned char p[8];
-
 	p[0] = START_RX ;
 	p[1] = freq_channel ; 			// 通道0
 	p[2] = 0x00;

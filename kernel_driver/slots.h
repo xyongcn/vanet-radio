@@ -26,6 +26,8 @@
 #define BCH_REQ				0x40
 #define EXTRA_SLOTS_REQ		0x20
 
+#define SLOT_TIMEOUT_TIME	(jiffies + 3*HZ)
+
 #define GET_TYPE(data) 			((data)&0x80)
 #define GET_CONTROL_TYPE(data) 	((data)&0x60)
 #define GET_ID(data)			((data)&0x1f)
@@ -54,6 +56,7 @@ struct slot {
 	u8 priority;
 	u8 p2p;
 	struct mutex lock;
+	struct timer_list timeout_timer;
 };
 
 void init_slot_table(struct slot *slot);

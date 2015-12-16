@@ -85,16 +85,6 @@ struct spidev_data spidev_global;
 struct si4463 * global_devrec;
 
 DEFINE_MUTEX(mutex_spi);
-wait_queue_head_t wait_withdraw;
-/* TX withdraw timer */
-struct timer_list tx_withdraw_timer;
-u8 tx_approved = 1;
-static void withdraw(unsigned long data)
-{
-	tx_approved = 1;
-//    printk(KERN_ALERT "tx is now approved\n");
-	wake_up_interruptible(&wait_withdraw);
-}
 
 /* PIN MUX */
 #define pin_mux_num  31
@@ -864,6 +854,7 @@ static void slot_isrwork(struct work_struct *work)
 {
 	struct si4463 *devrec;
 	unsigned long slot_start_jiffies;
+
 	devrec = container_of(work, struct si4463, slotirqwork);
 //	if( global_slots_count == (global_device_num - 1))
 
@@ -874,25 +865,32 @@ static void slot_isrwork(struct work_struct *work)
 //	}
 	slot_start_jiffies = jiffies;
 //	global_slot_start_jiffies = jiffies;
-
+	printk(KERN_ALERT "slot_isrwork: count:%d\n", global_slots_count);
 
 	switch(global_device_status){
 	case REQUEST_BCH:
 		/* GET MY SLOT! */
 
 		/* previously done in probe: listening for fi */
-		/* step 1: find first available in slot table */
-		devrec->bch_candidate = get_first_available_slot(global_slots_table, global_slots_perframe);
+		if(devrec->bch_candidate == -1) {
+			/* step 1: find first available in slot table */
+			devrec->bch_candidate = get_first_available_slot(global_slots_table, global_slots_perframe);
+			printk(KERN_ALERT "bch_candidate:%d\n", devrec->bch_candidate);
+			if(global_slots_count != devrec->bch_candidate) {
+				break;
+			}
+		}
 		/* step 2: send bch request */
-		send_bch_request(devrec, devrec->bch_candidate);
-		global_device_status = WAITING_BCH;
-		devrec->mybch_number = devrec->bch_candidate;
-		mutex_lock(&global_slots_table[devrec->bch_candidate].lock);
-		global_slots_table[devrec->bch_candidate].slot_status = myslot;
-		global_slots_table[devrec->bch_candidate].owner_id = devrec->device_id;
-		mutex_unlock(&global_slots_table[devrec->bch_candidate].lock);
-
-		netif_start_queue(devrec->dev);
+		if(global_slots_count == devrec->bch_candidate) {
+			send_bch_request(devrec, devrec->bch_candidate);
+			global_device_status = WAITING_BCH;
+			devrec->mybch_number = devrec->bch_candidate;
+			mutex_lock(&global_slots_table[devrec->bch_candidate].lock);
+			global_slots_table[devrec->bch_candidate].slot_status = myslot;
+			global_slots_table[devrec->bch_candidate].owner_id = devrec->device_id;
+			mutex_unlock(&global_slots_table[devrec->bch_candidate].lock);
+			netif_start_queue(devrec->dev);
+		}
 		break;
 	case WAITING_BCH:
 		/* todo: check slot_table to see if we have the BCH */
@@ -1200,19 +1198,25 @@ static int si4463_probe(struct spi_device *spi)
 	spi_set_drvdata(spi, devrec);
 	devrec->device_id = (u8)global_device_id & 0xff;
 	devrec->mybch_number = -1;
+	devrec->bch_candidate = -1;
 
 	memset(padding, 0, MAX_FIFO_SIZE);
 
-	/* setup timer */
-	setup_timer(&tx_withdraw_timer, withdraw, 0);
-	tx_withdraw_timer.expires = jiffies + HZ/1000; //jiffies + HZ/2 are 0.5s
-	tx_withdraw_timer.function = withdraw;
-	tx_withdraw_timer.data = 0;
+	/* TX ringbuffer */
+	rbuf_init(&global_tx_ringbuffer);
 
-	/* Waiting Queue */
-	init_waitqueue_head(&wait_withdraw);
+	/* Slot table init */
+	init_slot_table(global_slots_table);
+
+	/* init device */
+	reset();
+	clr_interrupt();
+
+	rx_start();
+	printk(KERN_ALERT "rx_start\n");
 
 	/* IRQ */
+	printk(KERN_ALERT "INIT IRQ!\n");
 	irq = gpio_to_irq(NIRQ);
 	irq_set_irq_type(irq, IRQ_TYPE_EDGE_FALLING);
     ret = request_irq(irq, si4463_isr, IRQF_TRIGGER_FALLING,
@@ -1231,6 +1235,7 @@ static int si4463_probe(struct spi_device *spi)
 //	} else {
 //		printk("create ktrhead irq_handler ok!\n");
 //	}
+	printk(KERN_ALERT "======================\n");
 
 	slot_irq = gpio_to_irq(SLOTIRQ);
 	irq_set_irq_type(slot_irq, IRQ_TYPE_EDGE_RISING);
@@ -1241,18 +1246,6 @@ static int si4463_probe(struct spi_device *spi)
 //		dev_err(printdev(global_devrec), "Unable to get IRQ");
 		printk("slot_irq REQUEST ERROR!\n");
 	}
-
-	/* TX ringbuffer */
-	rbuf_init(&global_tx_ringbuffer);
-
-	/* Slot table init */
-	init_slot_table(global_slots_table);
-
-	reset();
-	clr_interrupt();
-
-	rx_start();
-	printk(KERN_ALERT "rx_start\n");
 
 	return 0;
 
@@ -1367,7 +1360,7 @@ void module_net_init(struct net_device *dev)
 	priv = netdev_priv(dev);
 	memset(priv, 0, sizeof(struct module_priv));
 	priv->spi_priv = global_devrec;
-	global_devrec->dev = global_net_devs;
+
 	priv->dev_workqueue = create_singlethread_workqueue("tx_queue");
 	mutex_init(&priv->pib_lock);
 //	printk(KERN_ALERT "module_net_init! dev:%x glo:%x\n", dev, global_net_devs);
@@ -1389,6 +1382,7 @@ static int __init si4463_init(void)
 	if (global_net_devs == NULL)
 		goto out;
 
+	global_devrec->dev = global_net_devs;
 
 	ret = -ENODEV;
 	if ((result = register_netdev(global_net_devs)))
@@ -1428,7 +1422,6 @@ static void __exit si4463_exit(void)
 		unregister_netdev(global_net_devs);
 		free_netdev(global_net_devs);
 	}
-	del_timer(&tx_withdraw_timer);
 
 	return;
 }
