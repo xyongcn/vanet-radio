@@ -160,6 +160,7 @@ int set_pinmux(void);
 /* SI4463 GPIO*/
 #define GPIO0			183 //IO9
 //#define GPIO1			13 //IO5
+#define TESTPIN			13 //IO5
 
 /* TEST SLOT */
 #define SLOTIRQ			183

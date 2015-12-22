@@ -129,6 +129,7 @@ const struct gpio pin_mux[pin_mux_num] = {
 		{253, GPIOF_INIT_LOW, NULL},
 		{221, GPIOF_DIR_IN, NULL},
 		{13, GPIOF_DIR_IN, NULL}
+
 };
 
 static void write2file(struct file *fp, const char *write_str, int len) {
@@ -212,6 +213,11 @@ int set_pinmux(){
 	ret = gpio_export(253, 1);
 	ret = gpio_export(221, 1);
 
+//	/* IO4 */
+//	ret = gpio_export(129, 1);
+//	ret = gpio_export(252, 1);
+//	ret = gpio_export(220, 1);
+
     /* gpio export */
 //    fp = filp_open("/sys/class/gpio/export", O_WRONLY, 0);
 //    for (i=0; i<pin_mux_num; i++) {
@@ -264,6 +270,16 @@ int set_pinmux(){
     write2file(fp, s_in, 2);
     fp = filp_open("/sys/class/gpio/gpio13/direction", O_RDWR, 0);
     write2file(fp, s_high, 4);
+
+//    /* IO4 INPUT */
+//	fp = filp_open("/sys/kernel/debug/gpio_debug/gpio129/current_pinmux", O_RDWR, 0);
+//	write2file(fp, s_mode0, 5);
+//	fp = filp_open("/sys/class/gpio/gpio252/direction", O_RDWR, 0);
+//	write2file(fp, s_low, 3);
+//	fp = filp_open("/sys/class/gpio/gpio220/direction", O_RDWR, 0);
+//	write2file(fp, s_in, 2);
+//	fp = filp_open("/sys/class/gpio/gpio129/direction", O_RDWR, 0);
+//	write2file(fp, s_in, 2);
 
     /* SPI */
     fp = filp_open("/sys/class/gpio/gpio263/direction", O_RDWR, 0);
@@ -670,6 +686,7 @@ void si4463_rx_irqsafe(struct net_device *dev)
 
 	switch(GET_TYPE(tmprx[0])) {
 	case DATA_PACKET://data packet
+//		printk(KERN_ALERT "DATA_PACKET RECV!\n");
 	    skb = dev_alloc_skb(len+2);
 	    if (!skb) {
 	        printk(KERN_ALERT "si4463_rx can not allocate more memory to store the packet. drop the packet\n");
@@ -702,6 +719,7 @@ void si4463_rx_irqsafe(struct net_device *dev)
 	case CONTROL_PACKET:
 		switch(GET_CONTROL_TYPE(tmprx[0])){
 		case FI:
+			printk(KERN_ALERT "FI RECV!\n");
 			switch(global_device_status) {
 			case REQUEST_BCH:
 				/* listen */
@@ -735,6 +753,7 @@ void si4463_rx_irqsafe(struct net_device *dev)
 
 			break;
 		case BCH_REQ:
+			printk(KERN_ALERT "BCH_REQ RECV!\n");
 			/* step 1: finding the slot on which we have received the packet. */
 			switch(global_device_status) {
 			case REQUEST_BCH:
@@ -843,7 +862,7 @@ static irqreturn_t slot_isr(int irq, void *data)
 //	printk(KERN_ALERT "=====IRQ=====\n");
 	struct si4463 *devrec = data;
 
-//	gpio_set_value(13, 0);
+	gpio_set_value(TESTPIN, 1);
 
 	schedule_work(&devrec->slotirqwork);
 
@@ -854,6 +873,8 @@ static void slot_isrwork(struct work_struct *work)
 {
 	struct si4463 *devrec;
 	unsigned long slot_start_jiffies;
+
+	gpio_set_value(TESTPIN, 0);
 
 	devrec = container_of(work, struct si4463, slotirqwork);
 //	if( global_slots_count == (global_device_num - 1))
@@ -1246,6 +1267,9 @@ static int si4463_probe(struct spi_device *spi)
 //		dev_err(printdev(global_devrec), "Unable to get IRQ");
 		printk("slot_irq REQUEST ERROR!\n");
 	}
+
+
+	gpio_set_value(TESTPIN, 0);
 
 	return 0;
 

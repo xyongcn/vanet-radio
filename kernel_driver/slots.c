@@ -113,17 +113,18 @@ void updata_slot_info(struct slot *slot, u8 fi_data, u8 idfromslot, int mybchid)
 }
 void update_slot_table(u8* fi_data,
 		struct slot *slot_table,
-		int size,
+		int slots_perframe,
 		int current_slot,
 		int idfromslot,
 		int mybchid){
 	int i, j;
 
-	for(i=0; i<size; i++){
+	for(i=0; i<slots_perframe; i++){
 //		j = (i - (mybch_relatednum - mybch_number) + SLOTS_NUM) % SLOTS_NUM;
 //		updata_slot_info(slot_table[j], fi_data[i], idfromslot);
 
-		j = (i + (size - current_slot)) % size;
+//		j = (i + (size - current_slot)) % size;
+		j = (current_slot + i +1) % slots_perframe;
 		updata_slot_info(&slot_table[j], fi_data[i], idfromslot, mybchid);
 	}
 }
@@ -270,12 +271,13 @@ void send_remaining_data_inslot(struct si4463 *devrec, rbuf_t *txrb,
 		/* todo: send remaining data */
 		cmd_ = rbuf_dequeue(txrb);
 		data[0] = cmd_->len + 1;
+		data[1] = 0;
 
-		printk(KERN_ALERT "packet size: %d\n", cmd_->len);
+//		printk(KERN_ALERT "packet size: %d\n", cmd_->len);
 		fifo_reset();
-		tx_set_packet_len(cmd_->len + 1);
+		tx_set_packet_len(cmd_->len + 2); //1byte len header; 1byte data/control header
 
-		spi_write_fifo(data, 1);	//tmp_len);
+		spi_write_fifo(data, 2);	//tmp_len);
 		spi_write_fifo(cmd_->data, cmd_->len);
 
 		INIT_COMPLETION(devrec->tx_complete);
