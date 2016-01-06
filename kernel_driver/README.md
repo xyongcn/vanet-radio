@@ -22,9 +22,8 @@
 3. rebuild:
 	* bitbake edison-image
 
-#CONFIGURING-kernel driver
+#UESAGE
 1. Move .ko file and tools/* into edison. 
-1. tar -xvzf tools/lowpan-tools-0.3.1.tar.gz
-2. chmod -R 777 *
-3. ./start-up.sh
-4. A test example is tools/test-input-count.c
+2. In the edison, run:
+	* rmmod spidev
+	* insmod si4463_normal.ko
