@@ -509,3 +509,10 @@ l2ping 蓝牙地址
 
 bleconnect 蓝牙地址
 
+
+### 十八、tcpdump中出现 unreachable - need to frag 问题的解决 ###
+使用如下命令进行分包
+ iptables -t filter -I FORWARD -p tcp --tcp-flags SYN,RST,ACK SYN -j TCPMSS --set-mss 1400
+ 
+ iptables -t filter -I FORWARD -p tcp --tcp-flags SYN,RST,ACK SYN,ACK -j TCPMSS --set-mss 1400
+
