@@ -17,11 +17,13 @@
 #define MAJOR_NUM_TX  201
 #define IOCTL_SET_BUSY _IOWR(MAJOR_NUM_TX,1,int)
 #include <linux/netdevice.h>
+#include <linux/spi/spi.h>
 
 #define SPI_SPEED 7000000//
 #define BITS_PER_WORD 8
 
 //#define DEBUG
+#define GALILEO
 
 struct spidev_data {
 	dev_t			devt;
@@ -87,7 +89,7 @@ int set_pinmux(void);
 // PIN Definitions:
 
 
-
+#ifndef GALILEO
 /* common */
 #define SCKpin  		109//IO13   // SCK
 #define MOSIpin 		115//IO11   // MOSI
@@ -98,9 +100,20 @@ int set_pinmux(void);
 #define NIRQ 			182 //IO6  //interrpt
 /* SI4463 GPIO*/
 #define GPIO0			183 //IO9
-#define GPIO1			13 //IO5
+//#define GPIO1			13 //IO5
+#define TESTPIN			13 //IO5
+
+/* TEST SLOT */
+#define SLOTIRQ			183
 /* RF212 SLP */
 #define SLP_TR_PIN 		183 //IO9
-
+/////////////////////////////////////////////////////////////
+#else
+/////////////////////////////////////////////////////////////
+/* common */
+#define SSpin   		40	//IO8 //10    // SS
+#define RST_PIN   		38	//IO7 //182
+#define RADIO_SDN		RST_PIN
+#define NIRQ 			1 //IO6  //interrpt
+#endif//GALILEO
 #endif
-

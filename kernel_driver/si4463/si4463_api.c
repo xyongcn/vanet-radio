@@ -1,7 +1,6 @@
 #include "si4463_api.h"
 #include "cmd.h"
-//#include "../radio.h"
-#include "../802154-si4463.h"
+#include "../radio.h"
 
 #include <linux/kernel.h> /* printk() */
 #include <linux/slab.h> /* kmalloc() */
@@ -32,9 +31,9 @@ void cs_low(void){
 void cs_high(void){
 	gpio_set_value(SSpin, 1);
 }
-int get_CCA_latch(void){
-	return gpio_get_value(GPIO0);
-}
+//int get_CCA_latch(void){
+//	return gpio_get_value(GPIO0);
+//}
 
 bool get_CCA(void){
 	u8 tmp[10];
@@ -50,9 +49,9 @@ bool get_CCA(void){
 //	return gpio_get_value(GPIO0)>0 ? 1 : 0;
 }
 
-bool is_tx_fifo_almost_empty(void){
-	return gpio_get_value(GPIO0) > 0 ? 1 : 0;
-}
+//bool is_tx_fifo_almost_empty(void){
+//	return gpio_get_value(GPIO0) > 0 ? 1 : 0;
+//}
 
 static inline void getCTS(void) {
 	u8 reply = 0x00;
@@ -71,12 +70,13 @@ static inline void getCTS(void) {
 			cs_low();
 		}
 		if (j-- < 0) {
-			printk(KERN_ALERT "**********************getCTS ERROR!***********************\n", reply);
+			printk(KERN_ALERT "**********************getCTS ERROR!***********************\n");
 			break;
 		}
 	}
 }
 
+/*
 static inline int getCTS_gpio(void) {
 	int count = 2000;
 	while (count-- && !gpio_get_value(GPIO1)){
@@ -89,6 +89,7 @@ static inline int getCTS_gpio(void) {
 	return 1;
 
 }
+*/
 /*
  void getCTS(void){
  u8 reply = 0x00;
@@ -111,7 +112,7 @@ u8 * SendCmdReceiveAnswer(int byteCountTx, int byteCountRx, u8 * in_buff,
 //	if (byteCountTx == 1)
 //		byteCountTx++;
 
-	char answer, i, j, k;
+//	char answer, i, j, k;
 //发送命令
 	//printk(KERN_ALERT "Send CMD! \n");
 
@@ -179,11 +180,16 @@ u8 * spi_write_cmd(int byteCountTx, u8 * in_buff) {
 
 
 void reset(void) {
+	u8 init_command[] = { RF_POWER_UP };
+	u8 PART_INFO_command[] = { 0x01 }; // Part Info
+	u8 get_int_status_command[] = { 0x20, 0x00, 0x00, 0x00 }; //  Clear all pending interrupts and get the interrupt status back
+	u8 buff[10];
+
 	gpio_set_value(RADIO_SDN, 1);
 	mdelay(10);
 	gpio_set_value(RADIO_SDN, 0);
 	mdelay(10);
-	u8 buff[10];
+
 //POWER_UP
 /*
 	printk(KERN_ALERT "Set CS to 1 \n");
@@ -203,18 +209,18 @@ void reset(void) {
 	printk(KERN_ALERT "get CS %d \n",gpio_get_value(SSpin));
 */
 //const unsigned char init_command[] = {0x02, 0x01, 0x01, x3, x2, x1, x0};// no patch, boot main app. img, FREQ_VCXO, return 1 byte
-	u8 init_command[] = { RF_POWER_UP };
+
 	SendCmdReceiveAnswer(7, 1, init_command, buff);
 	mdelay(20);
 	//ppp(buff, 1);
 	SendCmdReceiveAnswer(7, 1, init_command, buff);
 	mdelay(20);
 
-	u8 PART_INFO_command[] = { 0x01 }; // Part Info
+
 	SendCmdReceiveAnswer(1, 9, PART_INFO_command, buff);
 	//ppp(buff, 9);
 
-	u8 get_int_status_command[] = { 0x20, 0x00, 0x00, 0x00 }; //  Clear all pending interrupts and get the interrupt status back
+
 	SendCmdReceiveAnswer(4, 9, get_int_status_command, buff);
 	//ppp(buff, 9);
 
@@ -738,6 +744,24 @@ void tx_start(void)					// 开始发射
 	spi_write_cmd(5, p);
 }
 
+void tx_start2txtune(void)					// 开始发射
+{
+	unsigned char p[5];
+
+	p[0] = START_TX ;
+	p[1] = freq_channel ;  			// 通道0
+
+	p[2] = 0x50;//TX_TUNE
+//	p[2] = 0x60;//RX_TUNE
+//	p[2] = 0x30;//ready
+//	p[2] = 0x80;//RX
+
+	p[3] = 0x00;
+//	p[4] = 0x40;
+	p[4] = 0x00;
+	spi_write_cmd(5, p);
+}
+
 void tx_start_1B(void)					// 开始发射
 {
 	unsigned char p[1];
@@ -767,7 +791,6 @@ void tx_set_packet_len(u8 packetlen)
 void rx_start(void)					// 开始接收
 {
 	unsigned char p[8];
-
 	p[0] = START_RX ;
 	p[1] = freq_channel ; 			// 通道0
 	p[2] = 0x00;
@@ -826,7 +849,7 @@ void change_state2tx_tune(void){
 //	ret = spidev_sync(spidev_global, &m);
 //}
 void spi_write_fifo(unsigned char * data, int len) {
-	int j;
+//	int j;
 	ssize_t ret;
 	u8 cmd = 0x66;
 	struct spi_transfer	t_cmd = {
@@ -850,12 +873,11 @@ void spi_write_fifo(unsigned char * data, int len) {
 }
 
 void spi_read_fifo(unsigned char * st, int len) {
-	int j;
+//	int j;
 
 //	mutex_lock(&mutex_spi);
-
-	cs_low();
 	u8 cmd = READ_RX_FIFO;
+	cs_low();
 //	u8 ret;
 	spidev_global.buffer = &cmd;
 	spidev_sync_write(&spidev_global, 1);
@@ -912,10 +934,10 @@ u8 read_frr_a(void) {
 
 //	mutex_lock(&mutex_spi);
 	cs_low();
-	spidev_global.buffer = &cmd;
+	spidev_global.buffer = cmd;
 //	spidev_sync_write(&spidev_global, 1);
 //	cmd = 0x00;
-	spidev_sync_transfer(&spidev_global, &cmd, rx,  2);
+	spidev_sync_transfer(&spidev_global, cmd, rx,  2);
 	cs_high();
 //	mutex_unlock(&mutex_spi);
 //	printk(KERN_ALERT "FRR READ: %x, %x\n", rx[0], rx[1]);
@@ -934,7 +956,7 @@ u8 read_frr_a(void) {
 //		cs_high();
 		j--;
 
-	} while( j>=0 && rx[2] == 0 || rx[2] == 0xff);
+	} while( (j>=0) && ((rx[2] == 0) || (rx[2] == 0xff)));
 
 	if (j<=5){
 		printk(KERN_ALERT "get_ph_status ERROR!!!\n");
@@ -945,8 +967,8 @@ u8 read_frr_a(void) {
 
 void read_frr_b(u8 *value) {
 	u8 cmd;
-	u8 rx[3];
-	int j;
+//	u8 rx[3];
+//	int j;
 	cmd = FRR_B_READ;
 
 //	mutex_lock(&mutex_spi);
@@ -975,3 +997,4 @@ u8 get_device_state(){
 	SendCmdReceiveAnswer(2, 3, p, rx);
 	return rx[1];
 }
+
