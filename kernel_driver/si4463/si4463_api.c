@@ -26,10 +26,10 @@ int freq_channel = 0;
 static u8 config_table[] = RADIO_CONFIGURATION_DATA_ARRAY;
 /*-------------------------------------------------------------------------*/
 void cs_low(void){
-	gpio_set_value(SSpin, 0);
+	gpio_set_value_cansleep(SSpin, 0);
 }
 void cs_high(void){
-	gpio_set_value(SSpin, 1);
+	gpio_set_value_cansleep(SSpin, 1);
 }
 //int get_CCA_latch(void){
 //	return gpio_get_value(GPIO0);
@@ -185,9 +185,9 @@ void reset(void) {
 	u8 get_int_status_command[] = { 0x20, 0x00, 0x00, 0x00 }; //  Clear all pending interrupts and get the interrupt status back
 	u8 buff[10];
 
-	gpio_set_value(RADIO_SDN, 1);
+	gpio_set_value_cansleep(RADIO_SDN, 1);
 	mdelay(10);
-	gpio_set_value(RADIO_SDN, 0);
+	gpio_set_value_cansleep(RADIO_SDN, 0);
 	mdelay(10);
 
 //POWER_UP

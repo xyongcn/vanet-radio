@@ -27,7 +27,7 @@
 //#include <net/mac802154.h>
 //#include <net/ieee802154.h>
 #include <linux/gpio.h>
-#include <linux/lnw_gpio.h>
+//#include <linux/lnw_gpio.h>
 #include <linux/irq.h>
 
 #include <linux/delay.h>
@@ -384,8 +384,72 @@ int set_pinmux(){
 #else
 int set_pinmux(){
     int ret;
-    ret = gpio_request_array(pin_mux, pin_mux_num);
-    printk(KERN_ALERT "gpio_request_array return %d\n", ret);
+    struct file *fp;
+//    struct file *fp_214;
+
+    const char s_mode0[] = "mode0";
+    const char s_mode1[] = "mode1";
+    const char s_low[] = "low";
+    const char s_high[] = "high";
+    const char s_in[] = "in";
+    const char s_on[] = "on";
+
+    printk(KERN_ALERT "GALILEO SET PINMUX\n");
+//    ret = gpio_request_array(pin_mux, pin_mux_num);
+//    printk(KERN_ALERT "gpio_request_array return %d\n", ret);
+//
+	ret = gpio_export(72, 1);
+	ret = gpio_export(44, 1);
+	ret = gpio_export(24, 1);
+
+	ret = gpio_export(42, 1);
+
+	ret = gpio_export(46, 1);
+	ret = gpio_export(30, 1);
+
+	/* IO7,8 */
+	ret = gpio_export(38, 1);
+	ret = gpio_export(39, 1);
+	ret = gpio_export(40, 1);
+	ret = gpio_export(41, 1);
+	/* IO6 */
+	ret = gpio_export(68, 1);
+	ret = gpio_export(20, 1);
+	ret = gpio_export(21, 1);
+	ret = gpio_export(1, 1);
+    /* SPI */
+	//gpio72 have no direction file ..
+    fp = filp_open("/sys/class/gpio/gpio44/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio24/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+    fp = filp_open("/sys/class/gpio/gpio42/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio46/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio30/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+
+    /* IO7,8 */
+    fp = filp_open("/sys/class/gpio/gpio38/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio39/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio40/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio41/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+
+    /* IO6 */
+    fp = filp_open("/sys/class/gpio/gpio68/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+    fp = filp_open("/sys/class/gpio/gpio20/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio21/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio1/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    filp_close(fp,NULL);
     return 0;
 }
 #endif
@@ -403,7 +467,7 @@ static void spidev_complete(void *arg)
 ssize_t
 spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 {
-//	gpio_set_value(SSpin, 0);
+//	gpio_set_value_cansleep(SSpin, 0);
 	//ndelay(100);
 
 	DECLARE_COMPLETION_ONSTACK(done);
@@ -439,7 +503,7 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 	}
 
 
-//	gpio_set_value(SSpin, 1);
+//	gpio_set_value_cansleep(SSpin, 1);
 	return status;
 }
 
@@ -611,7 +675,7 @@ again_irqbusy:
 	data_sending.len = skb->len;
 	data_sending.data = skb->data;
 
-	INIT_COMPLETION(devrec->tx_complete);
+	reinit_completion(&devrec->tx_complete);
 
 //	printk(KERN_ALERT "Len: %d\n", data_sending.len);
 	fifo_reset();
@@ -770,7 +834,7 @@ int si4463_release(struct net_device *dev)
 {
 	printk("si4463_release\n");
     netif_stop_queue(dev);
-    gpio_set_value(RADIO_SDN, 1);//disable
+    gpio_set_value_cansleep(RADIO_SDN, 1);//disable
     free_irq(gpio_to_irq(NIRQ),global_net_devs);
     gpio_free_array(pin_mux, pin_mux_num);
 	gpio_unexport(109);
@@ -1036,7 +1100,7 @@ static int si4463_probe(struct spi_device *spi)
 //	spin_lock_init(&isHandlingIrq.lock);
 //	isHandlingIrq.data = 0;
 	mutex_init(&spidev_global.buf_lock);
-
+#ifndef GALILEO
 	/* GPIO setup
 	 *
 	 */
@@ -1053,7 +1117,7 @@ static int si4463_probe(struct spi_device *spi)
 //			lnw_gpio_set_alt(SSpin, saved_muxing);
 	}
 	gpio_direction_output(SSpin, 1);
-
+#endif
 	/* PIN MUX */
 	set_pinmux();
 
@@ -1261,7 +1325,7 @@ static int __init si4463_init(void)
 	}
 
 	/* Allocate the NET devices */
-	global_net_devs = alloc_netdev(sizeof(struct module_priv), "si%d", module_net_init);
+	global_net_devs = alloc_netdev(sizeof(struct module_priv), "si%d", NET_NAME_UNKNOWN, module_net_init);
 	if (global_net_devs == NULL)
 		goto out;
 
@@ -1293,7 +1357,7 @@ module_init(si4463_init);
 
 static void __exit si4463_exit(void)
 {
-	gpio_set_value(RADIO_SDN, 1);//disable
+	gpio_set_value_cansleep(RADIO_SDN, 1);//disable
 
 	spi_unregister_driver(&spidev_spi_driver);
 

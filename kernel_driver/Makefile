@@ -7,7 +7,7 @@
 obj-m := si4463_normal.o
 si4463_normal-objs := normal_si4463.o si4463/si4463_api.o 
 
-KDIR :=/home/wu/Desktop/edison/kernel/linux-edison-standard-build
+KDIR :=/home/wu/Desktop/802.11p-linux
 
 PWD := $(shell pwd)
 
