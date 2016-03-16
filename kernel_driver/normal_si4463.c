@@ -156,6 +156,7 @@ const struct gpio pin_mux[pin_mux_num] = {
 const struct gpio pin_mux[pin_mux_num] = {
 		/*SPI IO11,IO12,IO13*/
 		{72, GPIOF_INIT_LOW, NULL},
+		/*{72, NULL, NULL},*/
 		{44, GPIOF_INIT_HIGH, NULL},
 		{24, GPIOF_INIT_LOW, NULL},
 
@@ -387,17 +388,63 @@ int set_pinmux(){
     struct file *fp;
 //    struct file *fp_214;
 
-    const char s_mode0[] = "mode0";
-    const char s_mode1[] = "mode1";
+//    const char s_mode0[] = "mode0";
+//    const char s_mode1[] = "mode1";
     const char s_low[] = "low";
     const char s_high[] = "high";
     const char s_in[] = "in";
-    const char s_on[] = "on";
+//    const char s_on[] = "on";
 
     printk(KERN_ALERT "GALILEO SET PINMUX\n");
 //    ret = gpio_request_array(pin_mux, pin_mux_num);
 //    printk(KERN_ALERT "gpio_request_array return %d\n", ret);
 //
+
+        fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+        write2file(fp, "72", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "44", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "24", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "42", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "46", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "30", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "38", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "39", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "40", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "41", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "68", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "20", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "21", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "1", 1);
+	filp_close(fp,NULL);
+
+	printk(KERN_ALERT "GALILEO EXPORT GPIO\n");
+
 	ret = gpio_export(72, 1);
 	ret = gpio_export(44, 1);
 	ret = gpio_export(24, 1);
@@ -407,16 +454,17 @@ int set_pinmux(){
 	ret = gpio_export(46, 1);
 	ret = gpio_export(30, 1);
 
-	/* IO7,8 */
+	// IO7,8 //
 	ret = gpio_export(38, 1);
 	ret = gpio_export(39, 1);
 	ret = gpio_export(40, 1);
 	ret = gpio_export(41, 1);
-	/* IO6 */
+	// IO6 //
 	ret = gpio_export(68, 1);
 	ret = gpio_export(20, 1);
 	ret = gpio_export(21, 1);
 	ret = gpio_export(1, 1);
+
     /* SPI */
 	//gpio72 have no direction file ..
     fp = filp_open("/sys/class/gpio/gpio44/direction", O_RDWR, 0);
@@ -441,8 +489,8 @@ int set_pinmux(){
     write2file(fp, s_in, 2);
 
     /* IO6 */
-    fp = filp_open("/sys/class/gpio/gpio68/direction", O_RDWR, 0);
-    write2file(fp, s_low, 3);
+//    fp = filp_open("/sys/class/gpio/gpio68/direction", O_RDWR, 0);
+//    write2file(fp, s_low, 3);
     fp = filp_open("/sys/class/gpio/gpio20/direction", O_RDWR, 0);
     write2file(fp, s_high, 4);
     fp = filp_open("/sys/class/gpio/gpio21/direction", O_RDWR, 0);
@@ -450,6 +498,7 @@ int set_pinmux(){
     fp = filp_open("/sys/class/gpio/gpio1/direction", O_RDWR, 0);
     write2file(fp, s_in, 2);
     filp_close(fp,NULL);
+
     return 0;
 }
 #endif
@@ -1078,7 +1127,7 @@ static int si4463_probe(struct spi_device *spi)
 //	int irq;
 	int ret = -ENOMEM;
 //	u8 val;
-	int err;
+//	int err;
 	struct si4463 *devrec;
 
 //	struct pinctrl *pinctrl;
