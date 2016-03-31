@@ -163,7 +163,7 @@ again_irqbusy:
 
 	spi_write_fifo(data, 2);	//tmp_len);
 
-	INIT_COMPLETION(devrec->tx_complete);
+	reinit_completion(&devrec->tx_complete);
 	tx_start();
 	ret = wait_for_completion_interruptible_timeout(&devrec->tx_complete, 5 * HZ);
 
@@ -233,7 +233,7 @@ again_irqbusy:
 
 	spi_write_fifo(data, len+1);	//tmp_len);
 
-	INIT_COMPLETION(devrec->tx_complete);
+	reinit_completion(&devrec->tx_complete);
 	tx_start();
 	ret = wait_for_completion_interruptible_timeout(&devrec->tx_complete, 5 * HZ);
 
@@ -280,7 +280,7 @@ void send_remaining_data_inslot(struct si4463 *devrec, rbuf_t *txrb,
 		spi_write_fifo(data, 2);	//tmp_len);
 		spi_write_fifo(cmd_->data, cmd_->len);
 
-		INIT_COMPLETION(devrec->tx_complete);
+		reinit_completion(&devrec->tx_complete);
 		tx_start2txtune();
 		ret = wait_for_completion_interruptible_timeout(&devrec->tx_complete, 5 * HZ);
 

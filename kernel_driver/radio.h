@@ -7,7 +7,6 @@
 //#include <net/mac802154.h>
 //#include <net/ieee802154.h>
 #include <linux/gpio.h>
-#include <linux/lnw_gpio.h>
 #include <linux/irq.h>
 
 #include <linux/delay.h>
@@ -57,6 +56,7 @@
 #define BITS_PER_WORD 8
 
 //#define DEBUG
+#define GALILEO
 
 /* Device Private Data */
 struct si4463 {
@@ -149,6 +149,7 @@ int set_pinmux(void);
 
 
 
+#ifndef GALILEO
 /* common */
 #define SCKpin  		109//IO13   // SCK
 #define MOSIpin 		115//IO11   // MOSI
@@ -162,10 +163,22 @@ int set_pinmux(void);
 //#define GPIO1			13 //IO5
 #define TESTPIN			13 //IO5
 
-/* TEST SLOT */
-#define SLOTIRQ			183
+
 /* RF212 SLP */
 #define SLP_TR_PIN 		183 //IO9
+/////////////////////////////////////////////////////////////
+#else
+/////////////////////////////////////////////////////////////
+/* common */
+#define SSpin   		40	//IO8 //10    // SS
+#define RST_PIN   		38	//IO7 //182
+#define RADIO_SDN		RST_PIN
+#define NIRQ 			1 //IO6  //interrpt
+/* SLOT */
+#define SLOTIRQ			 0//IO5
+#endif//GALILEO
+
+
 
 #endif
 

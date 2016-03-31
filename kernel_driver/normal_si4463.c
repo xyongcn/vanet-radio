@@ -87,6 +87,7 @@ struct si4463 * global_devrec;
 DEFINE_MUTEX(mutex_spi);
 
 /* PIN MUX */
+#ifndef GALILEO
 #define pin_mux_num  31
 const struct gpio pin_mux[pin_mux_num] = {
 		/*{111, NULL, NULL},*/
@@ -131,6 +132,41 @@ const struct gpio pin_mux[pin_mux_num] = {
 		{13, GPIOF_DIR_IN, NULL}
 
 };
+#else
+#define pin_mux_num  14
+//https://github.com/intel-iot-devkit/mraa/blob/master/src/x86/intel_galileo_rev_g.c
+const struct gpio pin_mux[pin_mux_num] = {
+		/*SPI IO11,IO12,IO13*/
+		{72, GPIOF_INIT_LOW, NULL},
+		/*{72, NULL, NULL},*/
+		{44, GPIOF_INIT_HIGH, NULL},
+		{24, GPIOF_INIT_LOW, NULL},
+
+		{42, GPIOF_INIT_HIGH, NULL},
+
+		{46, GPIOF_INIT_HIGH, NULL},
+		{30, GPIOF_INIT_LOW, NULL},
+
+		/*IO9*/
+
+
+		/*IO7 and IO8*/
+		{38, GPIOF_INIT_HIGH, NULL},
+		{39, GPIOF_DIR_IN, NULL},
+		{40, GPIOF_INIT_HIGH, NULL},
+		{41, GPIOF_DIR_IN, NULL},
+
+		/*IO6*/
+
+		{68, GPIOF_INIT_LOW, NULL},
+		{20, GPIOF_INIT_HIGH, NULL},
+		{21, GPIOF_DIR_IN, NULL},
+		{1, GPIOF_DIR_IN, NULL},
+		/*IO5*/
+
+
+};
+#endif
 
 static void write2file(struct file *fp, const char *write_str, int len) {
 //    static char buf1[10];
@@ -157,6 +193,7 @@ static void write2file(struct file *fp, const char *write_str, int len) {
     set_fs(fs);
 }
 
+#ifndef GALILEO
 int set_pinmux(){
 
 
@@ -327,7 +364,150 @@ int set_pinmux(){
 	return 0;
 
 }
+#else
+int set_pinmux(){
+    int ret;
+    struct file *fp;
+//    struct file *fp_214;
 
+//    const char s_mode0[] = "mode0";
+//    const char s_mode1[] = "mode1";
+    const char s_low[] = "low";
+    const char s_high[] = "high";
+    const char s_in[] = "in";
+//    const char s_on[] = "on";
+
+    printk(KERN_ALERT "GALILEO SET PINMUX\n");
+//    ret = gpio_request_array(pin_mux, pin_mux_num);
+//    printk(KERN_ALERT "gpio_request_array return %d\n", ret);
+//
+
+        fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+        write2file(fp, "72", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "44", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "24", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "42", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "46", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "30", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "38", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "39", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "40", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "41", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "68", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "20", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "21", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "1", 1);
+	filp_close(fp,NULL);
+	/*IO5*/
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "0", 1);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "19", 2);
+	filp_close(fp,NULL);
+	fp = filp_open("/sys/class/gpio/export", O_WRONLY|O_APPEND, 0);
+	write2file(fp, "66", 1);
+	filp_close(fp,NULL);
+
+	printk(KERN_ALERT "GALILEO EXPORT GPIO\n");
+
+	ret = gpio_export(72, 1);
+	ret = gpio_export(44, 1);
+	ret = gpio_export(24, 1);
+
+	ret = gpio_export(42, 1);
+
+	ret = gpio_export(46, 1);
+	ret = gpio_export(30, 1);
+
+	// IO7,8 //
+	ret = gpio_export(38, 1);
+	ret = gpio_export(39, 1);
+	ret = gpio_export(40, 1);
+	ret = gpio_export(41, 1);
+	// IO6 //
+	ret = gpio_export(68, 1);
+	ret = gpio_export(20, 1);
+	ret = gpio_export(21, 1);
+	ret = gpio_export(1, 1);
+
+	// IO5 //
+	ret = gpio_export(19, 1);
+	ret = gpio_export(66, 1);
+	ret = gpio_export(0, 1);
+
+    /* SPI */
+	//gpio72 have no direction file ..
+    fp = filp_open("/sys/class/gpio/gpio44/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio24/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+    fp = filp_open("/sys/class/gpio/gpio42/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio46/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio30/direction", O_RDWR, 0);
+    write2file(fp, s_low, 3);
+
+    /* IO7,8 */
+    fp = filp_open("/sys/class/gpio/gpio38/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio39/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio40/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio41/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+
+    /* IO6 */
+//    fp = filp_open("/sys/class/gpio/gpio68/direction", O_RDWR, 0);
+//    write2file(fp, s_low, 3);
+    fp = filp_open("/sys/class/gpio/gpio20/direction", O_RDWR, 0);
+    write2file(fp, s_high, 4);
+    fp = filp_open("/sys/class/gpio/gpio21/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio1/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    filp_close(fp,NULL);
+
+    //* IO5 *//
+    fp = filp_open("/sys/class/gpio/gpio0/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+    fp = filp_open("/sys/class/gpio/gpio19/direction", O_RDWR, 0);
+    write2file(fp, s_in, 2);
+//    fp = filp_open("/sys/class/gpio/gpio66/value", O_RDWR, 0);
+//    write2file(fp, s_low, 3);
+    filp_close(fp,NULL);
+
+    return 0;
+}
+#endif
 /*-------------------------------------------------------------------------*/
 
 /*
@@ -342,7 +522,7 @@ static void spidev_complete(void *arg)
 ssize_t
 spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 {
-//	gpio_set_value(SSpin, 0);
+//	gpio_set_value_cansleep(SSpin, 0);
 	//ndelay(100);
 
 	DECLARE_COMPLETION_ONSTACK(done);
@@ -378,7 +558,7 @@ spidev_sync(struct spidev_data *spidev, struct spi_message *message)
 	}
 
 
-//	gpio_set_value(SSpin, 1);
+//	gpio_set_value_cansleep(SSpin, 1);
 	return status;
 }
 
@@ -790,7 +970,7 @@ int si4463_release(struct net_device *dev)
 {
 	printk("si4463_release\n");
     netif_stop_queue(dev);
-    gpio_set_value(RADIO_SDN, 1);//disable
+    gpio_set_value_cansleep(RADIO_SDN, 1);//disable
     free_irq(gpio_to_irq(NIRQ),global_net_devs);
     gpio_free_array(pin_mux, pin_mux_num);
 	gpio_unexport(109);
@@ -859,10 +1039,10 @@ int si4463_change_mtu(struct net_device *dev, int new_mtu)
 
 static irqreturn_t slot_isr(int irq, void *data)
 {
-//	printk(KERN_ALERT "=====IRQ=====\n");
+	//printk(KERN_ALERT "=====IRQ=====\n");
 	struct si4463 *devrec = data;
 
-	gpio_set_value(TESTPIN, 1);
+	//gpio_set_value_cansleep(TESTPIN, 1);
 
 	schedule_work(&devrec->slotirqwork);
 
@@ -874,7 +1054,7 @@ static void slot_isrwork(struct work_struct *work)
 	struct si4463 *devrec;
 	unsigned long slot_start_jiffies;
 
-	gpio_set_value(TESTPIN, 0);
+	//gpio_set_value_cansleep(TESTPIN, 0);
 
 	devrec = container_of(work, struct si4463, slotirqwork);
 //	if( global_slots_count == (global_device_num - 1))
@@ -976,7 +1156,7 @@ static void slot_isrwork(struct work_struct *work)
 //
 //		}
 //	}
-//	gpio_set_value(13, 1);
+//	gpio_set_value_cansleep(13, 1);
 //	printk(KERN_ALERT "=====IRQ=====\n");
 }
 
@@ -1154,6 +1334,7 @@ static int si4463_probe(struct spi_device *spi)
 //	isHandlingIrq.data = 0;
 	mutex_init(&spidev_global.buf_lock);
 
+#ifndef GALILEO
 	/* GPIO setup
 	 *
 	 */
@@ -1170,6 +1351,7 @@ static int si4463_probe(struct spi_device *spi)
 //			lnw_gpio_set_alt(SSpin, saved_muxing);
 	}
 	gpio_direction_output(SSpin, 1);
+#endif
 
 	/* PIN MUX */
 	set_pinmux();
@@ -1268,8 +1450,6 @@ static int si4463_probe(struct spi_device *spi)
 		printk("slot_irq REQUEST ERROR!\n");
 	}
 
-
-	gpio_set_value(TESTPIN, 0);
 
 	return 0;
 
@@ -1402,7 +1582,7 @@ static int __init si4463_init(void)
 	}
 
 	/* Allocate the NET devices */
-	global_net_devs = alloc_netdev(sizeof(struct module_priv), "si%d", module_net_init);
+	global_net_devs = alloc_netdev(sizeof(struct module_priv), "si%d", NET_NAME_UNKNOWN, module_net_init);
 	if (global_net_devs == NULL)
 		goto out;
 
@@ -1435,7 +1615,7 @@ module_init(si4463_init);
 
 static void __exit si4463_exit(void)
 {
-	gpio_set_value(RADIO_SDN, 1);//disable
+	gpio_set_value_cansleep(RADIO_SDN, 1);//disable
 
 	spi_unregister_driver(&spidev_spi_driver);
 
